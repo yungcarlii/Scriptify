@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "scriptify",
+	"version": "${version}",
+	"name": "Scriptify",
+	"description": "Server-side toolkit for scripted SMP events, admin workflows, and survival-server content.",
+	"authors": [
+		"Scriptify"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/scriptify/icon.png",
+	"environment": "server",
+	"entrypoints": {
+		"main": [
+			"scriptify.function.Scriptify"
+		]
+	},
+	"mixins": [
+		"scriptify.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"sgui": ">=1.12.0"
+	},
+	"suggests": {
+		"luckperms": "*"
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "scriptify.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"ChunkMapAccessor",
+		"PlayerAccessor",
+		"PlayerDisplayNameMixin",
+		"PlayerInfoEntryMixin",
+		"PlayerListLoginMixin",
+		"ServerPlayerGameModeMixin",
+		"ServerPlayerTabListMixin",
+		"TrackedEntityMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
