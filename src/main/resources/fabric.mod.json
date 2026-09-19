@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "scriptify",
+	"version": "${version}",
+	"name": "Scriptify",
+	"description": "Server-side toolkit for scripted SMP videos: staged deaths, identities, bots and scenes. Players join with an unmodified vanilla client - nothing to install, nothing to ask your cast to download.",
+	"authors": [
+		"Scriptify"
+	],
+	"license": "MIT",
+	"icon": "assets/scriptify/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"scriptify.function.Scriptify"
+		]
+	},
+	"mixins": [
+		"scriptify.mixins.json",
+		"scriptify.bots.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"sgui": ">=1.12.0"
+	},
+	"suggests": {
+		"luckperms": "*",
+		"herobot": "*"
+	}
+}

@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+out/
+classes/
+
+# Fabric
+run/
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.vscode/
+.classpath
+.project
+bin/
+*.launch
+
+# JVM crash / profiling output
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr
+
+# OS
+*.DS_Store
+Thumbs.db
+
+# Pre-git manual source snapshots; kept on disk, not tracked
+.snapshots/

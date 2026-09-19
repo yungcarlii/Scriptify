@@ -1,0 +1,27 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "scriptify.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"ChatDeliveryMixin",
+		"ChatSourceMixin",
+		"ChunkMapAccessor",
+		"CommandGateMixin",
+		"CommandSuggestionMixin",
+		"EntitySelectorParserMixin",
+		"PlayerAccessor",
+		"PlayerDisplayNameMixin",
+		"PlayerInfoEntryMixin",
+		"PlayerInfoPacketAccessor",
+		"PlayerListLoginMixin",
+		"PlayerListNameLookupMixin",
+		"ServerPlayerGameModeMixin",
+		"ServerPlayerPermissionsMixin",
+		"ServerPlayerTabListMixin",
+		"TrackedEntityMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
