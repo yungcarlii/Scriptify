@@ -16,6 +16,8 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scriptify.storage.DataStore;
 
 /**
@@ -217,8 +219,33 @@ public final class RankService {
 	private boolean dirty;
 	private MinecraftServer server;
 
+	/**
+	 * Callbacks fired after any rank edit, for consumers outside this mod.
+	 *
+	 * <p>Copy-on-write because a listener may be added while one is being fired - a consumer that
+	 * reacts to a rank change by reading ranks back is entirely reasonable, and a consumer that
+	 * registers a second listener from inside the first is unusual but not illegal.
+	 */
+	private final java.util.List<Runnable> changeListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+	/** Shares a name with {@link JsonPermissionService}'s, so permission output reads as one stream. */
+	private static final Logger LOGGER = LoggerFactory.getLogger("scriptify/permissions");
+
 	public RankService(DataStore storage) {
 		this.storage = storage;
+	}
+
+	/**
+	 * Registers a callback fired after any rank edit or grant.
+	 *
+	 * <p>Public because {@link scriptify.api.RanksApi} delegates to it. Not intended to be called
+	 * directly from inside this mod - internal code that needs to react to a rank change should read
+	 * {@link RankRegistry} instead, which is already published on the same path.
+	 */
+	public void addChangeListener(Runnable listener) {
+		if (listener != null) {
+			this.changeListeners.add(listener);
+		}
 	}
 
 	/**
@@ -243,6 +270,9 @@ public final class RankService {
 	/** Given the server once it exists, so a rank change can reach the people holding it. */
 	public void bind(MinecraftServer server) {
 		this.server = server;
+		// Consumers outside this mod register before the server exists, because their initialiser and
+		// ours are not ordered relative to each other. This is where those listeners are collected.
+		scriptify.api.RanksApi.drainPendingListeners(this);
 		applied();
 	}
 
@@ -260,15 +290,30 @@ public final class RankService {
 	 */
 	private void applied() {
 		RankRegistry.publish(this);
-		if (this.server == null) {
-			return;
-		}
-		for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
-			// Nothing on the other end of a bot's connection draws a command tree.
-			if (scriptify.access.FakePlayers.isFake(player)) {
-				continue;
+		if (this.server != null) {
+			for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
+				// Nothing on the other end of a bot's connection draws a command tree.
+				if (scriptify.access.FakePlayers.isFake(player)) {
+					continue;
+				}
+				this.server.getCommands().sendCommands(player);
 			}
-			this.server.getCommands().sendCommands(player);
+		}
+		// Last, and outside the server null-check, so a consumer hears about a rank edit that happened
+		// before the server bound - and so a listener reading command levels sees the state the clients
+		// have already been sent rather than the one they are about to be.
+		notifyChangeListeners();
+	}
+
+	private void notifyChangeListeners() {
+		for (Runnable listener : this.changeListeners) {
+			try {
+				listener.run();
+			} catch (RuntimeException failure) {
+				// A consumer's bug must not break the rank edit that triggered it. The edit has already
+				// been applied and published by this point; only the notification is lost.
+				LOGGER.warn("A rank change listener threw; ignoring it.", failure);
+			}
 		}
 	}
 
