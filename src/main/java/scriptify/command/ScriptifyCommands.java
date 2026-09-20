@@ -1284,6 +1284,21 @@ public final class ScriptifyCommands {
 						return 1;
 					})))
 
+			// Restoring without the menu. The timeline is the better interface for a person choosing
+			// between twenty snapshots, and no interface at all for a console, a script or a scheduled
+			// job - which is where "put everyone back how they were" actually gets run from.
+			// The snapshot comes before the player, which reads backwards until you know why: player
+			// arguments here are greedy strings, so they have to be last or they swallow whatever
+			// follows. Putting the id first is the only ordering that can parse.
+			.then(literal("restore")
+				.then(literal("latest")
+					.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
+						.executes(context -> restore(context, Targets.one(context, "target"), null))))
+				.then(argument("id", StringArgumentType.word())
+					.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
+						.executes(context -> restore(context, Targets.one(context, "target"),
+							StringArgumentType.getString(context, "id"))))))
+
 			.then(literal("undo")
 				.executes(context -> {
 					ServerPlayer player = context.getSource().getPlayerOrException();
@@ -1323,6 +1338,40 @@ public final class ScriptifyCommands {
 							+ target.getGameProfile().name() + "'s rollback history."), true);
 						return 1;
 					}))));
+	}
+
+	/**
+	 * Restores a snapshot onto a player from the command line.
+	 *
+	 * @param id the snapshot id, or null for the most recent one. "Latest" is what somebody actually
+	 *           wants nine times out of ten, and it saves copying a sixteen-digit id out of a menu.
+	 */
+	private static int restore(CommandContext<CommandSourceStack> context, ServerPlayer target,
+			String id) {
+		var rollback = ScriptifyRuntime.rollback();
+		if (rollback == null) {
+			context.getSource().sendFailure(Msg.failure("Scriptify is still starting up."));
+			return 0;
+		}
+		String chosen = id;
+		if (chosen == null) {
+			var all = rollback.list(target.getUUID());
+			if (all.isEmpty()) {
+				context.getSource().sendFailure(Msg.failure(
+					"There is nothing recorded for " + target.getGameProfile().name() + "."));
+				return 0;
+			}
+			// list() is newest first.
+			chosen = all.get(0).id();
+		}
+		if (!rollback.restore(target, chosen)) {
+			context.getSource().sendFailure(Msg.failure("No snapshot with that id."));
+			return 0;
+		}
+		String restored = chosen;
+		context.getSource().sendSuccess(() -> Msg.line("Restored " + restored + " onto "
+			+ target.getGameProfile().name() + ". Undo with /inventoryrollback undo."), true);
+		return 1;
 	}
 
 	/** Opens the timeline for somebody, defaulting to the caller. */
