@@ -5,6 +5,7 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -1027,6 +1028,8 @@ public final class ScriptifyCommands {
 						return 1;
 					}))));
 
+		registerInventoryRollback(dispatcher);
+
 		dispatcher.register(literal("faketab")
 			.requires(source -> has(source, PermissionService.ADMIN))
 			.executes(context -> {
@@ -1240,6 +1243,100 @@ public final class ScriptifyCommands {
 							ScriptifyRuntime.sudo().say(target, StringArgumentType.getString(context, "message"));
 							return 1;
 						})))));
+	}
+
+	// ------------------------------------------------------------------ rollback
+
+	/**
+	 * {@code /inventoryrollback} — the successor to {@code /backupinv}.
+	 *
+	 * <p>{@code /backupinv} stays registered and working; it opens the same history. Renaming a
+	 * command somebody has in muscle memory, or in a macro, is not worth the tidiness.
+	 *
+	 * <p>Player arguments are greedy strings with server-side suggestions, like every other Scriptify
+	 * command — a custom argument type would not survive the trip to a vanilla client.
+	 */
+	private static void registerInventoryRollback(CommandDispatcher<CommandSourceStack> dispatcher) {
+		dispatcher.register(literal("inventoryrollback")
+			.requires(source -> has(source, PermissionService.INVENTORY))
+
+			.executes(context -> openHistory(context, null))
+
+			.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
+				.executes(context -> openHistory(context, Targets.one(context, "target"))))
+
+			.then(literal("save")
+				.executes(context -> {
+					ServerPlayer player = context.getSource().getPlayerOrException();
+					var snapshot = ScriptifyRuntime.rollback()
+						.capture(player, scriptify.rollback.Snapshot.REASON_MANUAL, "");
+					context.getSource().sendSuccess(
+						() -> Msg.line("Snapshot saved: " + snapshot.label()), false);
+					return 1;
+				})
+				.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
+					.executes(context -> {
+						ServerPlayer target = Targets.one(context, "target");
+						var snapshot = ScriptifyRuntime.rollback()
+							.capture(target, scriptify.rollback.Snapshot.REASON_MANUAL, "");
+						context.getSource().sendSuccess(() -> Msg.line("Saved a snapshot of "
+							+ target.getGameProfile().name() + "'s state: " + snapshot.label()), true);
+						return 1;
+					})))
+
+			.then(literal("undo")
+				.executes(context -> {
+					ServerPlayer player = context.getSource().getPlayerOrException();
+					if (ScriptifyRuntime.rollback().undo(player)) {
+						context.getSource().sendSuccess(
+							() -> Msg.line("Put you back to before your last restore."), false);
+						return 1;
+					}
+					context.getSource().sendFailure(
+						Msg.failure("You have not restored anything this session."));
+					return 0;
+				}))
+
+			.then(literal("search")
+				.then(argument("item", StringArgumentType.greedyString())
+					.executes(context -> {
+						ServerPlayer player = context.getSource().getPlayerOrException();
+						String needle = StringArgumentType.getString(context, "item");
+						var hits = ScriptifyRuntime.rollback().search(player.getUUID(), needle);
+						if (hits.isEmpty()) {
+							context.getSource().sendSuccess(
+								() -> Msg.line("Nothing in your history held '" + needle + "'."), false);
+							return 0;
+						}
+						context.getSource().sendSuccess(() -> Msg.line(
+							hits.size() + " snapshot(s) held '" + needle + "', newest "
+								+ hits.get(0).label() + "."), false);
+						return hits.size();
+					})))
+
+			.then(literal("purge")
+				.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
+					.executes(context -> {
+						ServerPlayer target = Targets.one(context, "target");
+						ScriptifyRuntime.rollback().store().purge(target.getUUID());
+						context.getSource().sendSuccess(() -> Msg.line("Cleared "
+							+ target.getGameProfile().name() + "'s rollback history."), true);
+						return 1;
+					}))));
+	}
+
+	/** Opens the timeline for somebody, defaulting to the caller. */
+	private static int openHistory(CommandContext<CommandSourceStack> context, ServerPlayer target)
+			throws CommandSyntaxException {
+		ServerPlayer viewer = context.getSource().getPlayerOrException();
+		if (ScriptifyRuntime.rollback() == null) {
+			context.getSource().sendFailure(Msg.failure("Scriptify is still starting up."));
+			return 0;
+		}
+		ServerPlayer subject = target == null ? viewer : target;
+		scriptify.ui.RollbackMenu.open(viewer, subject.getUUID(),
+			subject.getGameProfile().name(), 0);
+		return 1;
 	}
 
 	// ------------------------------------------------------------------ helpers

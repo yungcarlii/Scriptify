@@ -36,6 +36,7 @@ public final class ScriptifyRuntime {
 	private static KitManager kits;
 	private static FeatureManager features;
 	private static InventoryBackupService backups;
+	private static scriptify.rollback.RollbackService rollback;
 	private static FillService fill;
 	private static SudoService sudo;
 	private static FakeMessageService fakeMessages;
@@ -58,6 +59,7 @@ public final class ScriptifyRuntime {
 		kits = new KitManager(context);
 		features = new FeatureManager(context);
 		backups = new InventoryBackupService(context);
+		rollback = new scriptify.rollback.RollbackService(context);
 		fill = new FillService(context);
 		fill.load();
 		sudo = new SudoService(context);
@@ -112,6 +114,7 @@ public final class ScriptifyRuntime {
 		kits = null;
 		features = null;
 		backups = null;
+		rollback = null;
 		fill = null;
 		sudo = null;
 		fakeMessages = null;
@@ -158,9 +161,12 @@ public final class ScriptifyRuntime {
 			// Snapshot before anything else touches the inventory. This runs for staged deaths too — the
 			// gear is only recoverable while it is still on the player, and a fraction of a second later
 			// it may have been cleared, dropped or swapped for a scene.
-			if (backups != null) {
+			if (rollback != null) {
 				try {
-					backups.create(player, InventoryBackupService.REASON_DEATH);
+					// At this point the inventory still holds everything that is about to hit the
+					// floor, so the inventory section is the death drops. Capturing after the drop
+					// would find an empty player, which is what the old backup system did.
+					rollback.capture(player, scriptify.rollback.Snapshot.REASON_DEATH, "");
 				} catch (RuntimeException exception) {
 					context().logger().warn("Could not snapshot {} on death.", player.getGameProfile().name(), exception);
 				}
@@ -274,6 +280,11 @@ public final class ScriptifyRuntime {
 
 	public static InventoryBackupService backups() {
 		return backups;
+	}
+
+	/** Snapshots and rollback. The successor to {@link #backups()}; see {@code /inventoryrollback}. */
+	public static scriptify.rollback.RollbackService rollback() {
+		return rollback;
 	}
 
 	public static FillService fill() {

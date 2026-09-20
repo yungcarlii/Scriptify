@@ -31,3 +31,6 @@ Thumbs.db
 
 # Pre-git manual source snapshots; kept on disk, not tracked
 .snapshots/
+
+# Server run artifacts
+logs/
