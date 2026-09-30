@@ -4,6 +4,7 @@
 	"package": "scriptify.bots.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
+		"LivingEntityInputMixin",
 		"PlayerSlotMixin"
 	],
 	"injectors": {

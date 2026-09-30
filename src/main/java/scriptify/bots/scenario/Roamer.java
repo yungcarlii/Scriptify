@@ -8,6 +8,7 @@ import net.minecraft.world.level.Level;
 import scriptify.bots.ai.AimController;
 import scriptify.bots.ai.BotProfile;
 import scriptify.bots.ai.Rng;
+import scriptify.bots.ai.Swimmer;
 import scriptify.bots.bot.BotNavigation;
 
 /**
@@ -124,8 +125,9 @@ public final class Roamer {
                 st.strikes++;
                 if (st.strikes >= MAX_STRIKES) return Step.GIVE_UP;
                 if (st.strikes == 1) {
-                    // Most obstructions are one block tall: a step, a fence, a slab.
-                    bot.jumpFromGround();
+                    // Most obstructions are one block tall: a step, a fence, a slab. Not afloat,
+                    // where a ground jump is a leap out of the water; the swim holds space instead.
+                    if (!Swimmer.isSwimming(bot)) bot.jumpFromGround();
                 } else {
                     // Grinding against a corner. Commit to one way around it for a moment
                     // rather than re-deciding every tick, which just re-picks the wall.
@@ -215,7 +217,7 @@ public final class Roamer {
                 st.strikes++;
                 if (st.strikes >= MAX_STRIKES) return Step.GIVE_UP;
                 if (st.strikes == 1) {
-                    bot.jumpFromGround();
+                    if (!Swimmer.isSwimming(bot)) bot.jumpFromGround();
                 } else {
                     // Drop the leg as well as sidestepping. Sidestepping alone frees the bot
                     // for a moment, and then the next leg is generated on the same bearing and
@@ -265,7 +267,7 @@ public final class Roamer {
      * turning looks worse than not hopping at all.</p>
      */
     public static void bhop(ServerPlayer bot) {
-        if (bot.onGround() && bot.isSprinting() && bot.zza > 0.7f) {
+        if (bot.onGround() && !bot.isInWater() && bot.isSprinting() && bot.zza > 0.7f) {
             bot.jumpFromGround();
         }
     }
@@ -297,13 +299,17 @@ public final class Roamer {
         return null;
     }
 
-    /** Stops the bot where it stands without touching its fall. */
+    /**
+     * Stops the bot where it stands without touching its fall. In deep water, stopping means
+     * treading water: a scenario bot stood still in a lake would otherwise sink and drown.
+     */
     public static void halt(ServerPlayer bot) {
         bot.zza = 0;
         bot.xxa = 0;
         bot.setSprinting(false);
         Vec3 v = bot.getDeltaMovement();
         bot.setDeltaMovement(v.x * 0.4, v.y, v.z * 0.4);
+        Swimmer.tread(bot);
     }
 
     /** Slow head drift, the way someone stood waiting looks around. */

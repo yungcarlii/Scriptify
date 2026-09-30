@@ -44,10 +44,17 @@ public final class BlockPlacer {
         return world.getEntities(null, new net.minecraft.world.phys.AABB(pos)).isEmpty();
     }
 
-    /** A block that can support a placement on one of its faces. */
+    /**
+     * A block that can support a placement on one of its faces.
+     *
+     * <p>Judged by the outline, which is what a click hits, not by collision. A cobweb has an outline
+     * and no collision box, and a player standing in a web places the next web by clicking the top of
+     * the one at their feet - which a collision test refused outright. That was why a cocoon never
+     * got past its first web: the web at head height had nothing it was allowed to be placed on.</p>
+     */
     private static boolean isSupport(Level world, BlockPos pos) {
         BlockState state = world.getBlockState(pos);
-        return !state.isAir() && !state.canBeReplaced() && !state.getCollisionShape(world, pos).isEmpty();
+        return !state.isAir() && !state.canBeReplaced() && !state.getShape(world, pos).isEmpty();
     }
 
     /**
@@ -115,6 +122,60 @@ public final class BlockPlacer {
     }
 
     /**
+     * Finds a point to look at that places a block at {@code target} under the game's own click.
+     *
+     * <p>Stricter than {@link #solve}: only the outline ray is trusted, because that is the ray the
+     * click casts, and several points across each face are tried rather than only the centre. The
+     * centre is often exactly the wrong spot - reaching the floor beside you when there is a web at
+     * your feet, the ray to the middle of that floor passes through the web first and the block goes
+     * on top of the web instead. Aiming at the far half of the same face clears it, which is what a
+     * player does without thinking about it.</p>
+     *
+     * @return the nearest workable aim, or null when there is none from where the bot stands
+     */
+    public static Aim solveVisible(Level world, ServerPlayer bot, BlockPos target) {
+        if (!isReplaceable(world, target)) return null;
+
+        Vec3 eye = bot.getEyePosition();
+        double reach = bot.blockInteractionRange() - 0.2;
+        Aim best = null;
+        double bestDist = Double.MAX_VALUE;
+
+        for (Direction dir : Direction.values()) {
+            BlockPos support = target.relative(dir);
+            if (!isSupport(world, support)) continue;
+            Direction face = dir.getOpposite();
+            for (Vec3 point : facePoints(support, face)) {
+                double dist = eye.distanceTo(point);
+                if (dist > reach || dist >= bestDist) continue;
+                if (!lands(world, bot, eye, point, support, face, ClipContext.Block.OUTLINE)) continue;
+                bestDist = dist;
+                best = new Aim(point, support, face, target);
+            }
+        }
+        return best;
+    }
+
+    /** The centre of a face and four points in from its edges. */
+    private static Vec3[] facePoints(BlockPos pos, Direction face) {
+        Vec3 centre = faceCenter(pos, face);
+        // The two axes lying in the face.
+        Direction.Axis normal = face.getAxis();
+        double[][] offsets = {{0, 0}, {0.3, 0}, {-0.3, 0}, {0, 0.3}, {0, -0.3}};
+        Vec3[] points = new Vec3[offsets.length];
+        for (int i = 0; i < offsets.length; i++) {
+            double a = offsets[i][0];
+            double b = offsets[i][1];
+            points[i] = switch (normal) {
+                case X -> centre.add(0, a, b);
+                case Y -> centre.add(a, 0, b);
+                case Z -> centre.add(a, b, 0);
+            };
+        }
+        return points;
+    }
+
+    /**
      * Whether a ray from the eyes really lands on that face of that block.
      *
      * <p>The face matters, not just the block. Standing on top of the support and aiming at its
@@ -143,6 +204,7 @@ public final class BlockPlacer {
         BlockHitResult hit = (BlockHitResult) world.clip(new ClipContext(
             eye, faceCenter, mode, ClipContext.Fluid.NONE, bot));
         return hit.getType() == HitResult.Type.BLOCK
+            && !hit.isInside()
             && hit.getBlockPos().equals(support)
             && hit.getDirection() == face;
     }

@@ -15,6 +15,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import scriptify.bots.ai.AimController;
 import scriptify.bots.ai.BotProfile;
+import scriptify.bots.ai.ClickSim;
 import scriptify.bots.ai.CobwebTactics;
 import scriptify.bots.ai.HealPlanner;
 import scriptify.bots.ai.Rng;
@@ -78,6 +79,10 @@ public class BotUtils {
         /** The cell water was poured into, so the bot knows where to scoop it back from. */
         public BlockPos webWaterCell = null;
         public int webPhaseTicks = 0;
+        /** Whether the attack button is being held down on a web. */
+        public boolean webCutHeld = false;
+        /** Ticks before the bucket may be clicked again. */
+        public int handClickCooldown = 0;
 
         /** Mirrors the combat shield state so other systems can read it. */
         public boolean isBlocking = false;
@@ -113,14 +118,26 @@ public class BotUtils {
     /** How long to spend lining the bucket up before giving up and cutting instead. */
     private static final int POUR_PATIENCE_TICKS = 20;
 
+    /**
+     * Past this, the bucket is aimed at the web itself rather than straight down. Looking down is
+     * what a player does first and it nearly always works; the web is the fallback for the odd spot
+     * where the water would land somewhere useless.
+     */
+    private static final int POUR_LOOK_DOWN_TICKS = 10;
+
     /** How long to give the water before deciding it has not worked and cutting instead. */
     private static final int WATER_PATIENCE_TICKS = 40;
 
-    /** And how long to spend trying to get it back, before leaving it and moving on. */
-    private static final int SCOOP_PATIENCE_TICKS = 30;
+    /**
+     * And how long to spend trying to get it back, before leaving it and moving on.
+     *
+     * <p>Generous, because the bucket is worth the wait - a player never leaves one lying about -
+     * and because the bot may have to take a step back toward it first.</p>
+     */
+    private static final int SCOOP_PATIENCE_TICKS = 60;
 
-    /** Aim tolerance for a click that has to land on one specific block, in degrees. */
-    private static final double BLOCK_AIM_TOLERANCE = 7.0;
+    /** The escape proper, before the bot stops and takes stock. */
+    private static final int ESCAPE_LIMIT_TICKS = 100;
 
     public static void update(ServerPlayer bot, MinecraftServer server, long serverTick) {
         String botName = bot.getName().getString();
@@ -132,7 +149,12 @@ public class BotUtils {
         tickCooldowns(state);
         state.isBlocking = combat.isUsingShield;
 
-        handleSwimming(bot);
+        // Afloat, the default is to tread water: hold space and keep the head out. Anything that
+        // wants the bot to go somewhere overrides it later this tick. Not while it is getting out of
+        // a web, where it is standing in water it poured itself and wants to stay put to scoop it.
+        if (!state.isEscapingCobweb) {
+            scriptify.bots.ai.Swimmer.tread(bot);
+        }
 
         if (settings.isAutoTotemEnabled() && profile.onPhase(serverTick, 5)) {
             handleAutoTotem(bot, combat);
@@ -178,7 +200,7 @@ public class BotUtils {
                 // faster than that. It is what tells the planner to heal where it stands instead
                 // of looking for a way out that is not there.
                 HealPlanner.Plan plan = HealPlanner.plan(bot, profile, target, distance,
-                    underPressure, combat.cachedNearbyEnemies);
+                    underPressure, combat.cachedNearbyEnemies, CobwebTactics.isSheltering(botName));
                 if (applyHealPlan(bot, state, profile, settings, plan, server)) return;
             }
         }
@@ -200,6 +222,7 @@ public class BotUtils {
         if (state.eatCommitTicks > 0) state.eatCommitTicks--;
         if (state.isPearling) state.pearlTicks++;
         if (state.xpThrowDelay > 0) state.xpThrowDelay--;
+        if (state.handClickCooldown > 0) state.handClickCooldown--;
     }
 
     // ===================== healing =====================
@@ -556,8 +579,9 @@ public class BotUtils {
                                               BotProfile profile, MinecraftServer server) {
         if (state.cobwebEscapeCooldown > 0) return false;
         if (!CobwebTactics.inWeb(bot)) return false;
-        // A bot inside its own cocoon is there on purpose.
-        if (CobwebTactics.state(bot.getName().getString()).bubbling) return false;
+        // A bot inside its own cocoon is there on purpose, until it has healed.
+        String name = bot.getName().getString();
+        if (CobwebTactics.state(name).bubbling || CobwebTactics.isSheltering(name)) return false;
 
         state.isEscapingCobweb = true;
         state.cobwebEscapeTicks = 0;
@@ -573,14 +597,13 @@ public class BotUtils {
      * <p>Water first, if the bot is carrying any. A bucket poured into the web washes the whole
      * cluster away at once and does not care how many webs there are, which is why it is the
      * answer to being webbed rather than a curiosity - and the bot picks it back up afterwards,
-     * because leaving a puddle in the middle of an arena is somebody else's problem otherwise.
-     * With no bucket, or when the water has plainly not worked, it cuts its way out with a
-     * sword.</p>
+     * because a player never leaves a bucket of water lying about. With no bucket, or when the
+     * water has plainly not worked, it cuts its way out with a sword.</p>
      *
-     * <p>Everything here goes through {@link CobwebTactics#escapeAim}, which returns a point on
-     * a web that a ray from the eyes genuinely reaches. Aiming at the centre of the block
-     * underfoot - the old behaviour - points past it into the floor, and that is what had bots
-     * standing inside a web mining the dirt beneath them.</p>
+     * <p>Every click here is checked against the ray the click will really cast
+     * ({@link ClickSim}) rather than against an angle. The angle checks were the water bug: looking
+     * down at the web or the puddle - which is where both are - yaw stops meaning anything, the
+     * check kept failing, and the bot gave up on the bucket it had just emptied.</p>
      */
     private static void tickCobwebEscape(ServerPlayer bot, BotState state, BotProfile profile,
                                          MinecraftServer server) {
@@ -594,28 +617,15 @@ public class BotUtils {
             return;
         }
 
-        boolean stillWebbed = CobwebTactics.inWeb(bot);
-        if (!stillWebbed) {
-            // Out. If the way out was a bucket of water, go and collect it.
-            if (state.webWaterCell != null) {
-                BotActions.stopUsing(bot, server);
-                state.webPhase = WEB_PHASE_SCOOP;
-                state.webPhaseTicks = 0;
-                return;
-            }
-            endEscape(bot, state, profile, server);
-            return;
-        }
-        if (state.cobwebEscapeTicks > 100) {
-            endEscape(bot, state, profile, server);
+        // However this ends - free, out of time, nothing left in reach to cut - water that was
+        // poured is collected before the bot moves on. Three of these exits used to go straight to
+        // the end and forget the water existed.
+        if (!CobwebTactics.inWeb(bot) || state.cobwebEscapeTicks > ESCAPE_LIMIT_TICKS) {
+            leaveWeb(bot, state, profile, server);
             return;
         }
 
         Vec3 aim = CobwebTactics.escapeAim(bot);
-        if (aim == null) {
-            endEscape(bot, state, profile, server);
-            return;
-        }
 
         if (state.webPhase == WEB_PHASE_START && !canUseWater(bot)) {
             // No bucket, so there is nothing to wait for. Named rather than left in START, so
@@ -625,8 +635,7 @@ public class BotUtils {
         }
         if (state.webPhase == WEB_PHASE_START) {
             // Lining the bucket up has to be able to fail. Without this the bot waits on an aim
-            // it may never reach - a web at an awkward angle, a head knocked off course - and
-            // never falls through to the sword it is holding.
+            // it may never reach and never falls through to the sword it is holding.
             if (state.webPhaseTicks <= POUR_PATIENCE_TICKS) {
                 tickWaterPour(bot, state, profile, server, aim);
                 return;
@@ -642,13 +651,28 @@ public class BotUtils {
             state.webPhaseTicks = 0;
         }
 
-        tickWebCut(bot, state, profile, server, aim);
+        if (!tickWebCut(bot, state, profile, server, aim)) {
+            leaveWeb(bot, state, profile, server);
+        }
+    }
+
+    /** Out of the web, or done trying: fetch the water if any went down, otherwise finish. */
+    private static void leaveWeb(ServerPlayer bot, BotState state, BotProfile profile,
+                                 MinecraftServer server) {
+        releaseCut(bot, state, server);
+        if (state.webWaterCell != null && findPlacedWater(bot, state.webWaterCell) != null) {
+            state.webPhase = WEB_PHASE_SCOOP;
+            state.webPhaseTicks = 0;
+            return;
+        }
+        endEscape(bot, state, profile, server);
     }
 
     /** Winds the escape up and puts the attack button down. */
     private static void endEscape(ServerPlayer bot, BotState state, BotProfile profile,
                                   MinecraftServer server) {
         BotActions.stopUsing(bot, server);
+        state.webCutHeld = false;
         state.isEscapingCobweb = false;
         state.cobwebEscapeTicks = 0;
         state.webPhase = WEB_PHASE_START;
@@ -669,41 +693,101 @@ public class BotUtils {
     }
 
     /**
-     * Pours the bucket into the web.
+     * Pours the bucket so the water runs through the webs.
      *
-     * <p>Aimed at the web itself rather than at a face beside it. A cobweb does not block a
-     * fluid, so the bucket empties into that cell, and flowing water destroys cobweb - which is
-     * the entire trick, and why this clears a whole cluster where a sword clears one block.</p>
+     * <p>Looking down first, because that is what works and what a player does. Water cannot be
+     * poured <em>into</em> a web - the bucket empties beside the face it hits - so the trick is
+     * where it lands: with a web at the feet, clicking its top puts the water in the cell above it;
+     * with the head in a web, the click lands on that web and the water goes above the head. Either
+     * way it falls straight down through every web in the column. Only when that would put the water
+     * somewhere useless does the bot turn to aim at a web directly.</p>
      */
     private static void tickWaterPour(ServerPlayer bot, BotState state, BotProfile profile,
-                                      MinecraftServer server, Vec3 aim) {
+                                      MinecraftServer server, Vec3 webAim) {
         var inv = bot.getInventory();
         int bucket = Inv.findItem(inv, Items.WATER_BUCKET);
         if (bucket < 0) {
             state.webPhase = WEB_PHASE_CUT;
+            state.webPhaseTicks = 0;
             return;
         }
         Inv.equip(inv, bucket, 4);
-        AimController.lookAtPrecise(bot, aim, profile);
-        if (!aimedAtPoint(bot, aim, BLOCK_AIM_TOLERANCE)) return;
+
+        Vec3 look = state.webPhaseTicks <= POUR_LOOK_DOWN_TICKS || webAim == null
+            ? lookDownPoint(bot)
+            : webAim;
+        AimController.lookAtPrecise(bot, look, profile);
+
+        if (state.handClickCooldown > 0) return;
+        BlockPos cell = ClickSim.waterCell(bot);
+        if (cell == null || !washesWebs(bot, cell)) return;
 
         BotActions.useOnce(bot, server);
-        state.webWaterCell = BlockPos.containing(aim.x, aim.y, aim.z);
+        // Where the water will really be, from the same ray the click casts - not where the bot
+        // was looking - so the scoop goes back to the right block.
+        state.webWaterCell = cell;
+        state.handClickCooldown = HAND_CLICK_GAP;
         state.webPhase = WEB_PHASE_WATER;
         state.webPhaseTicks = 0;
+    }
+
+    /**
+     * A point just below the feet, a hair ahead along the current heading. Straight down, every
+     * heading is equally right, and aiming at the exact centre would have the head chase a
+     * different one every tick; nudging the point forward keeps the yaw where it already is.
+     */
+    private static Vec3 lookDownPoint(ServerPlayer bot) {
+        double yaw = Math.toRadians(bot.getYRot());
+        return new Vec3(bot.getX() - Math.sin(yaw) * 0.2, bot.getY() - 0.5,
+            bot.getZ() + Math.cos(yaw) * 0.2);
+    }
+
+    /**
+     * Whether water poured into {@code cell} will reach a web holding the bot.
+     *
+     * <p>Water falls straight down through anything without a collision box - air, plants, webs,
+     * destroying the webs as it goes - and once it lands it spreads sideways. A pour is only worth
+     * making if one of those two brings it into a web the bot is caught in.</p>
+     */
+    private static boolean washesWebs(ServerPlayer bot, BlockPos cell) {
+        java.util.Set<BlockPos> webs = websHolding(bot);
+        if (webs.isEmpty()) return false;
+
+        net.minecraft.world.level.Level world = bot.level();
+        BlockPos at = cell;
+        for (int fall = 0; fall < 6; fall++) {
+            if (webs.contains(at)) return true;
+            BlockPos below = at.below();
+            if (!world.getBlockState(below).getCollisionShape(world, below).isEmpty()) {
+                for (net.minecraft.core.Direction side
+                    : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+                    if (webs.contains(at.relative(side))) return true;
+                }
+                return false;
+            }
+            at = below;
+        }
+        return false;
+    }
+
+    /** The webs the bot is caught in. */
+    private static java.util.Set<BlockPos> websHolding(ServerPlayer bot) {
+        return new java.util.HashSet<>(CobwebTactics.websTouching(bot));
     }
 
     /** How far around itself the bot looks for the source it poured. */
     private static final int SCOOP_SEARCH = 2;
 
     /**
-     * Finds the water the bot put down.
-     *
-     * <p>Searched for rather than remembered. The cell the bot aimed at is where it wanted the
-     * water; where the water actually went is decided by the backend's own raycast, and the two
-     * are often a block apart - so a bot that trusted its own aim looked for a source that was
-     * never there and walked off leaving a pool behind. The nearest source to the spot it aimed
-     * at is the honest answer.</p>
+     * Ticks between two clicks with the bucket. The backend can delay a use by the bot's simulated
+     * ping, and a second click that arrived after the first had already scooped would pour the water
+     * straight back out.
+     */
+    private static final int HAND_CLICK_GAP = 6;
+
+    /**
+     * Finds the water the bot put down: the source nearest the cell it was poured into, in case the
+     * flow or a knock has left the bot looking at the wrong block.
      */
     private static BlockPos findPlacedWater(ServerPlayer bot, BlockPos near) {
         BlockPos best = null;
@@ -712,8 +796,10 @@ public class BotUtils {
             for (int dy = -1; dy <= SCOOP_SEARCH; dy++) {
                 for (int dz = -SCOOP_SEARCH; dz <= SCOOP_SEARCH; dz++) {
                     BlockPos candidate = near.offset(dx, dy, dz);
-                    if (!bot.level().getFluidState(candidate).isSource()) continue;
-                    double distance = candidate.distToCenterSqr(bot.position());
+                    var fluid = bot.level().getFluidState(candidate);
+                    if (!fluid.isSource() || !fluid.is(net.minecraft.tags.FluidTags.WATER)) continue;
+                    double distance = candidate.distToCenterSqr(near.getX() + 0.5,
+                        near.getY() + 0.5, near.getZ() + 0.5);
                     if (distance < bestDistance) {
                         bestDistance = distance;
                         best = candidate;
@@ -727,6 +813,11 @@ public class BotUtils {
     /**
      * Picks the water back up.
      *
+     * <p>Aims at the surface of the source and clicks only when the empty bucket's own ray would
+     * scoop that block - which from inside the water is any direction at all, and from above it is
+     * wherever the surface is in view. Knocked out of reach, the bot takes a step back toward it
+     * first rather than abandoning it.</p>
+     *
      * @return true while still working at it
      */
     private static boolean tickWaterScoop(ServerPlayer bot, BotState state, BotProfile profile,
@@ -736,18 +827,24 @@ public class BotUtils {
         }
         var inv = bot.getInventory();
         int bucket = Inv.findItem(inv, Items.BUCKET);
-        // Somebody else scooped it, or the bucket is gone. Either way it is not worth standing
-        // in the open over.
+        // Got it back - or somebody else did, or the bucket is gone. Either way, done here.
         if (bucket < 0) return false;
 
         BlockPos source = findPlacedWater(bot, state.webWaterCell);
         if (source == null) return false;
+        state.webWaterCell = source;
 
         Inv.equip(inv, bucket, 4);
-        Vec3 aim = Vec3.atCenterOf(source);
-        AimController.lookAtPrecise(bot, aim, profile);
-        if (aimedAtPoint(bot, aim, BLOCK_AIM_TOLERANCE)) {
+        Vec3 surface = new Vec3(source.getX() + 0.5, source.getY() + 0.75, source.getZ() + 0.5);
+        AimController.lookAtPrecise(bot, surface, profile);
+
+        if (state.handClickCooldown <= 0 && source.equals(ClickSim.pickupCell(bot))) {
             BotActions.useOnce(bot, server);
+            state.handClickCooldown = HAND_CLICK_GAP;
+            return true;
+        }
+        if (bot.getEyePosition().distanceTo(surface) > bot.blockInteractionRange() - 0.5) {
+            BotNavigation.moveTowardPosition(bot, Vec3.atBottomCenterOf(source), 0.6);
         }
         return true;
     }
@@ -755,29 +852,43 @@ public class BotUtils {
     /**
      * Cuts the web.
      *
-     * <p>Two details, both of which were wrong once. A sword shears cobweb about fifteen times
-     * faster than a fist, so it is worth the swap - but only if there is a sword: the old code
-     * equipped whatever scored best, and with no sword in the bag that was slot zero, so a bot
-     * changed to a random item and mined slower than with its hands. And breaking a block needs
-     * the button <em>held</em>; single clicks barely scratch it.</p>
+     * <p>A sword shears cobweb about fifteen times faster than a fist, so it is worth the swap -
+     * but only if there is a sword; anything else is worse than bare hands. Breaking a block needs
+     * the button <em>held</em>, and it is only held while the click would actually land on a web:
+     * held any longer, the bot carries on mining whatever it is facing once the web is gone.</p>
+     *
+     * @return false when there is nothing to cut from here and nowhere better to look
      */
-    private static void tickWebCut(ServerPlayer bot, BotState state, BotProfile profile,
-                                   MinecraftServer server, Vec3 aim) {
+    private static boolean tickWebCut(ServerPlayer bot, BotState state, BotProfile profile,
+                                      MinecraftServer server, Vec3 aim) {
         var inv = bot.getInventory();
         int swordSlot = Inv.best(inv,
             s -> scriptify.bots.ai.WeaponSelector.isSword(s.getItem()) ? 1 : 0);
-        // Shears cut web as fast as a sword and are the other thing a player might be holding;
-        // anything else is worse than bare hands, so nothing else is swapped to.
         if (swordSlot < 0) swordSlot = Inv.findItem(inv, Items.SHEARS);
         if (swordSlot >= 0) Inv.equip(inv, swordSlot, 0);
 
-        AimController.lookAtPrecise(bot, aim, profile);
+        if (aim != null) AimController.lookAtPrecise(bot, aim, profile);
 
-        // Only hold the button once the head has arrived. Held while the head is still turning,
-        // the mining lands on whatever the bot happened to be facing on the way past.
-        if (!aimedAtPoint(bot, aim, BLOCK_AIM_TOLERANCE)) return;
-        if (state.webPhaseTicks == 1 || state.webPhaseTicks % 20 == 0) {
+        // With the head inside a web the click lands on that web whatever the aim, which is
+        // exactly the web worth cutting first.
+        BlockPos targeted = ClickSim.targetedBlock(bot);
+        boolean onWeb = targeted != null && bot.level().getBlockState(targeted).is(Blocks.COBWEB);
+        if (!onWeb) {
+            releaseCut(bot, state, server);
+            return aim != null;
+        }
+        // Re-sent now and then: the backend lets go of the button if the bot is interrupted.
+        if (!state.webCutHeld || state.webPhaseTicks % 20 == 0) {
             BotActions.attackContinuous(bot, server);
+            state.webCutHeld = true;
+        }
+        return true;
+    }
+
+    private static void releaseCut(ServerPlayer bot, BotState state, MinecraftServer server) {
+        if (state.webCutHeld) {
+            BotActions.stopUsing(bot, server);
+            state.webCutHeld = false;
         }
     }
 
@@ -796,16 +907,6 @@ public class BotUtils {
     }
 
     // ===================== misc =====================
-
-    private static void handleSwimming(ServerPlayer bot) {
-        if (!bot.isInWater() && !bot.isUnderWater()) return;
-        bot.setSwimming(true);
-        if (bot.isUnderWater()) {
-            bot.push(0, 0.08, 0);
-        } else {
-            bot.push(0, 0.04, 0);
-        }
-    }
 
     /** Whether the bot is free to swing right now. */
     public static boolean canAct(ServerPlayer bot) {

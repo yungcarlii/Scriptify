@@ -14,6 +14,7 @@ import scriptify.bots.ai.BotProfile;
 import scriptify.bots.ai.Pathfinder;
 import scriptify.bots.ai.Rng;
 import scriptify.bots.ai.SquadCoordinator;
+import scriptify.bots.ai.Swimmer;
 
 import java.util.HashMap;
 import java.util.List;
@@ -303,6 +304,17 @@ public class BotNavigation {
         }
         state.knockbackTicks = 0;
 
+        // Deep water is its own thing, handled before anything below gets a chance to treat it
+        // like ground. Every land rule here ends in a jump - the stuck check, a step up, a hole,
+        // a bunny hop - and a ground jump in water is what had the bots leaping about like fish.
+        if (Swimmer.isSwimming(bot)) {
+            Swimmer.swimToward(bot, targetPos, speed);
+            state.stuckTicks = 0;
+            state.lastPosition = botPos;
+            return;
+        }
+        Swimmer.leave(bot);
+
         checkIfStuck(bot, state);
 
         double dx = targetPos.x - botPos.x;
@@ -311,11 +323,6 @@ public class BotNavigation {
         if (horizontalDist > 0.1) {
             dx /= horizontalDist;
             dz /= horizontalDist;
-        }
-
-        if (bot.isInWater() || bot.isUnderWater()) {
-            handleWaterMovement(bot, targetPos, speed, state, dx, dz, horizontalDist, botPos);
-            return;
         }
 
         // Sidestep when stuck against geometry.
@@ -483,23 +490,6 @@ public class BotNavigation {
         return Math.sqrt(vel.x * vel.x + vel.z * vel.z) > 0.35;
     }
 
-    private static void handleWaterMovement(ServerPlayer bot, Vec3 targetPos, double speed,
-                                            NavigationState state, double dx, double dz,
-                                            double horizontalDist, Vec3 botPos) {
-        if (targetPos.y > bot.getY() + 0.5) bot.push(0, 0.08, 0);
-        else if (targetPos.y < bot.getY() - 0.5) bot.push(0, -0.04, 0);
-
-        bot.setSprinting(false);
-        bot.zza = horizontalDist > 8.0 ? 0.8f : 0.6f;
-        bot.xxa = 0;
-        bot.push(dx * speed * 0.02, 0, dz * speed * 0.02);
-        if (state.jumpCooldown <= 0) {
-            bot.jumpFromGround();
-            state.jumpCooldown = 8;
-        }
-        state.lastPosition = botPos;
-    }
-
     private static void checkIfStuck(ServerPlayer bot, NavigationState state) {
         Vec3 currentPos = new Vec3(bot.getX(), bot.getY(), bot.getZ());
         if (state.lastPosition == null) {
@@ -586,6 +576,12 @@ public class BotNavigation {
         double dx = state.wanderTarget.x - botPos.x;
         double dz = state.wanderTarget.z - botPos.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
+        if (Swimmer.isSwimming(bot)) {
+            AimController.lookAtPos(bot, state.wanderTarget, profile, false);
+            Swimmer.swimToward(bot, state.wanderTarget, 0.5);
+            state.lastPosition = botPos;
+            return;
+        }
         if (dist > 0.5) {
             AimController.lookAtPos(bot, state.wanderTarget, profile, false);
             bot.setSprinting(false);

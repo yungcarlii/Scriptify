@@ -96,6 +96,17 @@ public final class HealPlanner {
      */
     public static Plan plan(ServerPlayer bot, BotProfile profile, Entity target,
                             double distance, boolean underPressure, int nearbyEnemies) {
+        return plan(bot, profile, target, distance, underPressure, nearbyEnemies, false);
+    }
+
+    /**
+     * @param inCover the bot is sealed in its own cocoon, which it built precisely so it could heal
+     *                where it stands - so it does, exactly as it would if surrounded. Pearling out
+     *                of it or backing off would throw away the reason it webbed up.
+     */
+    public static Plan plan(ServerPlayer bot, BotProfile profile, Entity target,
+                            double distance, boolean underPressure, int nearbyEnemies,
+                            boolean inCover) {
         Inventory inv = bot.getInventory();
 
         float max = Math.max(1.0f, bot.getMaxHealth());
@@ -129,7 +140,7 @@ public final class HealPlanner {
         // apple in the middle of a crowd with no attempt to get clear first - is heal *in place* and
         // spend the absorption on breaking out afterwards. The hits land either way; the difference
         // is whether you are healing while they do.
-        boolean surrounded = nearbyEnemies >= SURROUNDED_ENEMIES;
+        boolean surrounded = nearbyEnemies >= SURROUNDED_ENEMIES || inCover;
 
         // --- Surrounded: heal where you stand ----------------------------------------------
         if (surrounded && healthFraction <= hurt) {

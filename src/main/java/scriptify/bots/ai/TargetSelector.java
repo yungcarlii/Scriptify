@@ -56,7 +56,7 @@ public final class TargetSelector {
     public static class Memory {
         public int targetId = -1;
         public int commitTicks;          // ticks left on the current commitment
-        public int lostSightTicks;       // how long the target has been out of sight
+        public long lastSeenTick;        // when the target last won a sweep
         public long lastSwitchTick;
         public int reactionDelay;        // ticks before a newly spotted target is acted on
         public int pendingTargetId = -1;
@@ -84,8 +84,12 @@ public final class TargetSelector {
     public static Entity select(ServerPlayer bot, BotProfile profile, BotSettings settings,
                                 MinecraftServer server, String forcedName, Entity lastAttacker,
                                 long serverTick) {
-        Memory mem = memory(bot.getName().getString());
+        String botName = bot.getName().getString();
+        Memory mem = memory(botName);
         if (mem.commitTicks > 0) mem.commitTicks--;
+        // Patrolling a route: looks for trouble whatever auto-target says, but only trouble it
+        // has actually noticed - see noticed() for what that means.
+        boolean patrol = scriptify.bots.bot.BotPath.isCombatPath(botName);
 
         Entity current = resolve(bot, mem.targetId);
 
@@ -101,7 +105,7 @@ public final class TargetSelector {
 
         // With auto-target off a bot only fights what it is told to fight, or whatever hit
         // it first - it does not go looking for trouble.
-        if (!settings.isAutoTargetEnabled()) {
+        if (!settings.isAutoTargetEnabled() && !patrol) {
             if (settings.isRevengeEnabled() && lastAttacker != null && lastAttacker.isAlive()
                 && isAttackable(bot, lastAttacker, settings)
                 && bot.distanceTo(lastAttacker) <= settings.getMaxTargetDistance()) {
@@ -115,6 +119,15 @@ public final class TargetSelector {
         }
 
         double maxDist = settings.getMaxTargetDistance();
+        // A patrol spots enemies out to its sight range, and once it has one it will chase it a
+        // little further than that before giving up and going back to its route - a guard who
+        // follows a runner to the horizon has stopped guarding anything.
+        double chaseDist = maxDist;
+        if (patrol) {
+            maxDist = scriptify.bots.bot.BotPath.sightRange(botName);
+            chaseDist = maxDist + PATROL_CHASE_EXTRA;
+        }
+        boolean engaged = current != null && isAttackable(bot, current, settings);
         Entity groupFocus = settings.isSquadTacticsEnabled()
             ? Engagement.focusFor(bot.getName().getString())
             : null;
@@ -125,8 +138,7 @@ public final class TargetSelector {
         // all sweep on the same tick.
         if (mem.scanCooldown > 0) {
             mem.scanCooldown--;
-            if (current != null && isAttackable(bot, current, settings)
-                && bot.distanceTo(current) <= maxDist) {
+            if (engaged && bot.distanceTo(current) <= chaseDist) {
                 return current;
             }
         }
@@ -164,6 +176,11 @@ public final class TargetSelector {
 
         for (Entity candidate : candidates) {
             if (!isAttackable(bot, candidate, settings)) continue;
+            // The sweep box is square, so trim its corners back to a real radius for a patrol.
+            if (patrol && bot.distanceTo(candidate) > maxDist) continue;
+            // A patrol walking its route sees what is in front of it. Mid-fight it is already
+            // looking about, so anything in the open counts; line of sight is checked below.
+            if (patrol && !engaged && !noticed(bot, candidate, lastAttacker)) continue;
             double cheap = cheapScore(bot, profile, candidate, lastAttacker, maxDist, groupFocus);
 
             if (shortCount < FINALISTS) {
@@ -186,7 +203,10 @@ public final class TargetSelector {
         double bestScore = Double.NEGATIVE_INFINITY;
         for (int i = 0; i < shortCount; i++) {
             Entity candidate = shortlist.get(i);
-            double score = shortScores[i] + (Vision.canSee(bot, candidate) ? 0.45 : -0.35);
+            boolean seen = Vision.canSee(bot, candidate);
+            // Nobody on patrol knows about an enemy behind a wall - unless it just hit them.
+            if (patrol && !seen && candidate != lastAttacker) continue;
+            double score = shortScores[i] + (seen ? 0.45 : -0.35);
             if (score > bestScore) {
                 bestScore = score;
                 best = candidate;
@@ -199,10 +219,13 @@ public final class TargetSelector {
             // switching to creative or spectator kept getting hit for the full three seconds
             // of this grace window, because the sweep dropped them from the candidate list
             // while this branch happily handed the stale reference back.
-            if (current != null && mem.lostSightTicks < 60
+            //
+            // Timed on the server clock. This counted sweeps, and a sweep only runs every six to
+            // fourteen ticks, so "sixty" was half a minute rather than three seconds - long
+            // enough for a patrol to stand at a wall staring at an enemy it could not see.
+            if (current != null && serverTick - mem.lastSeenTick < LOST_SIGHT_GRACE
                 && isAttackable(bot, current, settings)
-                && bot.distanceTo(current) <= maxDist) {
-                mem.lostSightTicks++;
+                && bot.distanceTo(current) <= chaseDist) {
                 return current;
             }
             mem.targetId = -1;
@@ -241,6 +264,39 @@ public final class TargetSelector {
         return best;
     }
 
+    /** How long a target that ducked out of sight is still chased, in ticks. */
+    private static final long LOST_SIGHT_GRACE = 60;
+
+    /** How much further than its sight range a patrol follows an enemy it is already fighting. */
+    private static final double PATROL_CHASE_EXTRA = 12.0;
+
+    /** Half the width of what a walking player takes in without turning their head. */
+    private static final double PATROL_VIEW_HALF_ANGLE = 70.0;
+
+    /** Close enough to hear the footsteps, whichever way the bot is facing. */
+    private static final double PATROL_HEARING = 5.0;
+
+    /**
+     * Whether a patrolling bot has noticed a candidate at all.
+     *
+     * <p>Something it has not noticed does not exist to it. That is what separates a bot that
+     * walks its route and reacts to what comes into view from one that always knows where
+     * everybody is and swerves off the path toward a player behind it. Noticing is having them in
+     * front of you, hearing them right behind you, or being hit by them. Whether a wall is in the
+     * way is left to the line-of-sight check, which is the expensive part.</p>
+     */
+    private static boolean noticed(ServerPlayer bot, Entity candidate, Entity lastAttacker) {
+        if (candidate == lastAttacker) return true;
+        double dx = candidate.getX() - bot.getX();
+        double dz = candidate.getZ() - bot.getZ();
+        double flat = Math.hypot(dx, dz);
+        if (flat <= PATROL_HEARING) return true;
+        // Minecraft's yaw: facing is (-sin, cos).
+        double yaw = Math.toRadians(bot.getYHeadRot());
+        double facing = (-Math.sin(yaw) * dx + Math.cos(yaw) * dz) / flat;
+        return facing >= Math.cos(Math.toRadians(PATROL_VIEW_HALF_ANGLE));
+    }
+
     private static void remember(Memory mem, Entity target, long serverTick, BotProfile profile) {
         if (mem.targetId != target.getId()) {
             mem.targetId = target.getId();
@@ -249,7 +305,7 @@ public final class TargetSelector {
             mem.commitTicks = Rng.gaussianTicks(profile.rng(), 120, 40, 40, 240);
         }
         mem.pendingTargetId = -1;
-        mem.lostSightTicks = 0;
+        mem.lastSeenTick = serverTick;
     }
 
     private static Entity resolve(ServerPlayer bot, int id) {

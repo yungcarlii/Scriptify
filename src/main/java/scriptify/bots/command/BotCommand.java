@@ -7,6 +7,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
@@ -14,6 +15,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
+import java.util.List;
 import scriptify.bots.bot.BotCombat;
 import scriptify.bots.bot.BotFaction;
 import scriptify.bots.bot.BotKits;
@@ -135,8 +137,7 @@ public class BotCommand {
 
             // ========== INSPECT ==========
             .then(cmd("who", "Show a bot's personality and current playstyle")
-                .then(Commands.argument("botname", StringArgumentType.word())
-                    .suggests(BOT_SUGGESTIONS)
+                .then(BotSelector.bots("botname")
                     .executes(BotCommand::botProfile)))
 
             // ========== SPAWN ==========
@@ -147,8 +148,7 @@ public class BotCommand {
 
             // ========== REMOVE ==========
             .then(cmd("remove", "Remove a bot")
-                .then(Commands.argument("name", StringArgumentType.word())
-                    .suggests(BOT_SUGGESTIONS)
+                .then(BotSelector.bots("name")
                     .executes(BotCommand::remove)))
 
             // ========== REMOVEALL ==========
@@ -169,19 +169,23 @@ public class BotCommand {
                     .then(Commands.argument("count", IntegerArgumentType.integer(1, 10000))
                         .executes(BotCommand::massSpawn)))
                 .then(cmd("attack", "Attack a target")
-                    .then(Commands.argument("botname", StringArgumentType.word())
-                        .suggests(BOT_SUGGESTIONS)
-                        .then(Commands.argument("target", StringArgumentType.word())
-                            .suggests(PLAYER_SUGGESTIONS)
+                    .then(BotSelector.bots("botname")
+                        .then(BotSelector.players("target")
                             .executes(BotCommand::botAttack))))
                 .then(cmd("stop-attack", "Stop attack")
-                    .then(Commands.argument("botname", StringArgumentType.word())
-                        .suggests(BOT_SUGGESTIONS)
+                    .then(BotSelector.bots("botname")
                         .executes(BotCommand::botStopAttack)))
                 .then(cmd("inventory", "Show bot inventory")
-                    .then(Commands.argument("botname", StringArgumentType.word())
-                        .suggests(BOT_SUGGESTIONS)
+                    .then(BotSelector.bots("botname")
                         .executes(BotCommand::botInventory)))
+                .then(cmd("combatpath", "Patrol a path: fight any enemy that comes into view, then carry on")
+                    .then(Commands.argument("path", StringArgumentType.word())
+                        .suggests(PATH_SUGGESTIONS)
+                        .then(BotSelector.bots("bots")
+                            .executes(ctx -> combatPath(ctx, BotPath.DEFAULT_SIGHT_RANGE))
+                            .then(Commands.argument("sight-range", DoubleArgumentType.doubleArg(4, 128))
+                                .executes(ctx -> combatPath(ctx,
+                                    DoubleArgumentType.getDouble(ctx, "sight-range")))))))
                 .then(Commands.literal("list")
                     .executes(BotCommand::botList))
                 .then(cmd("path", "Path management")
@@ -217,12 +221,10 @@ public class BotCommand {
                         .then(Commands.argument("path", StringArgumentType.word())
                             .suggests(PATH_SUGGESTIONS)
                             .executes(BotCommand::pathStartStick)
-                            .then(Commands.argument("bot", StringArgumentType.word())
-                                .suggests(BOT_SUGGESTIONS)
+                            .then(BotSelector.bots("bot")
                                 .executes(BotCommand::pathStart))))
                     .then(cmd("stop", "Stop bot on path")
-                        .then(Commands.argument("bot", StringArgumentType.word())
-                            .suggests(BOT_SUGGESTIONS)
+                        .then(BotSelector.bots("bot")
                             .executes(BotCommand::pathStop)))
                     .then(Commands.literal("list")
                         .executes(BotCommand::pathList))
@@ -282,8 +284,7 @@ public class BotCommand {
                         .suggests(KIT_SUGGESTIONS)
                         .executes(BotCommand::kitDelete)))
                 .then(cmd("give-kit", "Give kit to player")
-                    .then(Commands.argument("playername", StringArgumentType.word())
-                        .suggests(PLAYER_SUGGESTIONS)
+                    .then(BotSelector.players("playername")
                         .then(Commands.argument("kitname", StringArgumentType.word())
                             .suggests(KIT_SUGGESTIONS)
                             .executes(BotCommand::kitGive))))
@@ -323,14 +324,12 @@ public class BotCommand {
                 .then(cmd("add", "Add player to faction")
                     .then(Commands.argument("faction", StringArgumentType.word())
                         .suggests(FACTION_SUGGESTIONS)
-                        .then(Commands.argument("player", StringArgumentType.word())
-                            .suggests(PLAYER_SUGGESTIONS)
+                        .then(BotSelector.players("player")
                             .executes(BotCommand::factionAdd))))
                 .then(cmd("remove", "Remove player from faction")
                     .then(Commands.argument("faction", StringArgumentType.word())
                         .suggests(FACTION_SUGGESTIONS)
-                        .then(Commands.argument("player", StringArgumentType.word())
-                            .suggests(PLAYER_SUGGESTIONS)
+                        .then(BotSelector.players("player")
                             .executes(BotCommand::factionRemove))))
                 .then(cmd("hostile", "Set faction hostility")
                     .then(Commands.argument("faction1", StringArgumentType.word())
@@ -361,8 +360,7 @@ public class BotCommand {
                 .then(cmd("attack", "Faction attack target")
                     .then(Commands.argument("faction", StringArgumentType.word())
                         .suggests(FACTION_SUGGESTIONS)
-                        .then(Commands.argument("target", StringArgumentType.word())
-                            .suggests(PLAYER_SUGGESTIONS)
+                        .then(BotSelector.players("target")
                             .executes(BotCommand::factionAttack))))
                 .then(cmd("path", "Faction path control")
                     .then(cmd("start", "Start faction on path")
@@ -546,16 +544,20 @@ public class BotCommand {
     }
 
 
-    private static int remove(CommandContext<CommandSourceStack> ctx) {
+    private static int remove(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String name = StringArgumentType.getString(ctx, "name");
-        if (BotManager.removeBot(source.getServer(), name, source)) {
-            source.sendSuccess(() -> Component.literal("Bot '" + name + "' removed!"), true);
-            return 1;
-        } else {
-            source.sendFailure(Component.literal("Bot '" + name + "' not found!"));
+        List<String> bots = BotSelector.bots(ctx, "name");
+        int removed = 0;
+        for (String name : bots) {
+            if (BotManager.removeBot(source.getServer(), name, source)) removed++;
+        }
+        if (removed == 0) {
+            source.sendFailure(Component.literal(BotSelector.describe(bots) + " could not be removed!"));
             return 0;
         }
+        String what = bots.size() == 1 ? "Bot '" + bots.get(0) + "'" : removed + " bots";
+        source.sendSuccess(() -> Component.literal(what + " removed!"), true);
+        return removed;
     }
 
     private static int removeAll(CommandContext<CommandSourceStack> ctx) {
@@ -593,80 +595,93 @@ public class BotCommand {
         return 1;
     }
 
-    private static int botAttack(CommandContext<CommandSourceStack> ctx) {
+    private static int botAttack(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String botname = StringArgumentType.getString(ctx, "botname");
-        String target = StringArgumentType.getString(ctx, "target");
-        if (!BotManager.isBot(botname)) {
-            source.sendFailure(Component.literal("Bot '" + botname + "' not found!"));
+        List<String> bots = BotSelector.bots(ctx, "botname");
+        List<String> targets = BotSelector.playerNames(ctx, "target");
+        // Several targets are shared out in turn, so "@a[team=red] @a[team=blue]" pairs the bots
+        // off across the enemy team rather than sending every one of them at the same person.
+        // A bot is never handed itself.
+        int assigned = 0;
+        for (int i = 0; i < bots.size(); i++) {
+            String bot = bots.get(i);
+            String target = targets.get(i % targets.size());
+            if (target.equalsIgnoreCase(bot)) {
+                if (targets.size() == 1) continue;
+                target = targets.get((i + 1) % targets.size());
+            }
+            BotCombat.setTarget(BotManager.canonical(bot), target);
+            assigned++;
+        }
+        if (assigned == 0) {
+            source.sendFailure(Component.literal("A bot cannot be told to attack itself."));
             return 0;
         }
-        BotCombat.setTarget(BotManager.canonical(botname), target);
-        source.sendSuccess(() -> Component.literal("Bot '" + botname + "' now attacking '" + target + "'"), true);
-        return 1;
+        String who = targets.size() == 1 ? "'" + targets.get(0) + "'" : targets.size() + " targets";
+        String what = BotSelector.describe(bots);
+        source.sendSuccess(() -> Component.literal(what + " now attacking " + who), true);
+        return assigned;
     }
 
-    private static int botStopAttack(CommandContext<CommandSourceStack> ctx) {
+    private static int botStopAttack(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String botname = StringArgumentType.getString(ctx, "botname");
-        if (!BotManager.isBot(botname)) {
-            source.sendFailure(Component.literal("Bot '" + botname + "' not found!"));
-            return 0;
+        List<String> bots = BotSelector.bots(ctx, "botname");
+        for (String bot : bots) {
+            BotCombat.clearTarget(BotManager.canonical(bot));
         }
-        BotCombat.clearTarget(BotManager.canonical(botname));
-        source.sendSuccess(() -> Component.literal("Bot '" + botname + "' stopped attacking"), true);
-        return 1;
+        source.sendSuccess(() -> Component.literal(BotSelector.describe(bots) + " stopped attacking"), true);
+        return bots.size();
     }
 
-    private static int botInventory(CommandContext<CommandSourceStack> ctx) {
+    private static int botInventory(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String botname = StringArgumentType.getString(ctx, "botname");
-        if (!BotManager.isBot(botname)) {
-            source.sendFailure(Component.literal("Bot '" + botname + "' not found!"));
-            return 0;
-        }
-        var bot = source.getServer().getPlayerList().getPlayer(botname);
-        if (bot == null) {
-            source.sendFailure(Component.literal("Bot '" + botname + "' not online!"));
-            return 0;
-        }
-        var inventory = bot.getInventory();
-        source.sendSuccess(() -> Component.literal("=== Inventory: " + botname + " ==="), false);
-        StringBuilder hotbar = new StringBuilder("Hotbar: ");
-        for (int i = 0; i < 9; i++) {
-            var stack = inventory.getItem(i);
-            if (!stack.isEmpty()) {
-                hotbar.append("[").append(stack.getHoverName().getString()).append(" x").append(stack.getCount()).append("] ");
+        List<String> bots = BotSelector.bots(ctx, "botname");
+        int shown = 0;
+        for (String botname : bots) {
+            var bot = source.getServer().getPlayerList().getPlayer(botname);
+            if (bot == null) {
+                source.sendFailure(Component.literal("Bot '" + botname + "' not online!"));
+                continue;
             }
-        }
-        source.sendSuccess(() -> Component.literal(hotbar.toString().trim()), false);
-        StringBuilder mainInv = new StringBuilder("Main: ");
-        for (int i = 9; i < 36; i++) {
-            var stack = inventory.getItem(i);
-            if (!stack.isEmpty()) {
-                mainInv.append("[").append(stack.getHoverName().getString()).append(" x").append(stack.getCount()).append("] ");
+            var inventory = bot.getInventory();
+            source.sendSuccess(() -> Component.literal("=== Inventory: " + botname + " ==="), false);
+            StringBuilder hotbar = new StringBuilder("Hotbar: ");
+            for (int i = 0; i < 9; i++) {
+                var stack = inventory.getItem(i);
+                if (!stack.isEmpty()) {
+                    hotbar.append("[").append(stack.getHoverName().getString()).append(" x").append(stack.getCount()).append("] ");
+                }
             }
-        }
-        source.sendSuccess(() -> Component.literal(mainInv.toString().trim()), false);
-        StringBuilder armor = new StringBuilder("Armor: ");
-        for (int i = 36; i < 40; i++) {
-            var stack = inventory.getItem(i);
-            if (!stack.isEmpty()) {
-                armor.append("[").append(stack.getHoverName().getString()).append("] ");
+            source.sendSuccess(() -> Component.literal(hotbar.toString().trim()), false);
+            StringBuilder mainInv = new StringBuilder("Main: ");
+            for (int i = 9; i < 36; i++) {
+                var stack = inventory.getItem(i);
+                if (!stack.isEmpty()) {
+                    mainInv.append("[").append(stack.getHoverName().getString()).append(" x").append(stack.getCount()).append("] ");
+                }
             }
+            source.sendSuccess(() -> Component.literal(mainInv.toString().trim()), false);
+            StringBuilder armor = new StringBuilder("Armor: ");
+            for (int i = 36; i < 40; i++) {
+                var stack = inventory.getItem(i);
+                if (!stack.isEmpty()) {
+                    armor.append("[").append(stack.getHoverName().getString()).append("] ");
+                }
+            }
+            String armorStr = armor.toString().trim();
+            if (!armorStr.equals("Armor:")) {
+                source.sendSuccess(() -> Component.literal(armorStr), false);
+            }
+            var offhand = inventory.getItem(40);
+            if (!offhand.isEmpty()) {
+                source.sendSuccess(() -> Component.literal("Offhand: [" + offhand.getHoverName().getString() + " x" + offhand.getCount() + "]"), false);
+            }
+            source.sendSuccess(() -> Component.literal("HP: " + String.format("%.1f", bot.getHealth()) + "/" + String.format("%.1f", bot.getMaxHealth()) +
+                " | Food: " + bot.getFoodData().getFoodLevel() +
+                " | XP: " + bot.experienceLevel), false);
+            shown++;
         }
-        String armorStr = armor.toString().trim();
-        if (!armorStr.equals("Armor:")) {
-            source.sendSuccess(() -> Component.literal(armorStr), false);
-        }
-        var offhand = inventory.getItem(40);
-        if (!offhand.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("Offhand: [" + offhand.getHoverName().getString() + " x" + offhand.getCount() + "]"), false);
-        }
-        source.sendSuccess(() -> Component.literal("HP: " + String.format("%.1f", bot.getHealth()) + "/" + String.format("%.1f", bot.getMaxHealth()) +
-            " | Food: " + bot.getFoodData().getFoodLevel() +
-            " | XP: " + bot.experienceLevel), false);
-        return 1;
+        return shown;
     }
 
     private static int botList(CommandContext<CommandSourceStack> ctx) {
@@ -790,17 +805,45 @@ public class BotCommand {
         }
     }
 
-    private static int pathStart(CommandContext<CommandSourceStack> ctx) {
+    private static int pathStart(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String bot = StringArgumentType.getString(ctx, "bot");
+        List<String> bots = BotSelector.bots(ctx, "bot");
         String path = StringArgumentType.getString(ctx, "path");
-        if (BotPath.startFollowing(bot, path)) {
-            source.sendSuccess(() -> Component.literal("Bot '" + bot + "' started following path '" + path + "'"), true);
-            return 1;
-        } else {
+        int started = 0;
+        for (String bot : bots) {
+            if (BotPath.startFollowing(bot, path)) started++;
+        }
+        if (started == 0) {
             source.sendFailure(Component.literal("Path '" + path + "' not found or empty"));
             return 0;
         }
+        source.sendSuccess(() -> Component.literal(BotSelector.describe(bots)
+            + " started following path '" + path + "'"), true);
+        return started;
+    }
+
+    /**
+     * Puts bots on a route as a patrol. They walk it, and when an enemy comes into view they leave
+     * it to fight, then walk back to where they left off and carry on.
+     */
+    private static int combatPath(CommandContext<CommandSourceStack> ctx, double sightRange)
+        throws CommandSyntaxException {
+        var source = ctx.getSource();
+        String path = StringArgumentType.getString(ctx, "path");
+        List<String> bots = BotSelector.bots(ctx, "bots");
+        int started = 0;
+        for (String bot : bots) {
+            if (BotPath.startCombatPath(bot, path, sightRange)) started++;
+        }
+        if (started == 0) {
+            source.sendFailure(Component.literal("Path '" + path + "' not found or empty"));
+            return 0;
+        }
+        String range = sightRange == Math.rint(sightRange)
+            ? String.valueOf((int) sightRange) : String.valueOf(sightRange);
+        source.sendSuccess(() -> Component.literal(BotSelector.describe(bots) + " patrolling '" + path
+            + "', engaging enemies within " + range + " blocks"), true);
+        return started;
     }
 
     /** Hands out a stick bound to this path; right clicking a bot with it starts that bot. */
@@ -857,16 +900,22 @@ public class BotCommand {
         return 1;
     }
 
-    private static int pathStop(CommandContext<CommandSourceStack> ctx) {
+    private static int pathStop(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String bot = StringArgumentType.getString(ctx, "bot");
-        if (BotPath.stopFollowing(bot)) {
-            source.sendSuccess(() -> Component.literal("Bot '" + bot + "' stopped following path"), true);
-            return 1;
-        } else {
-            source.sendFailure(Component.literal("Bot '" + bot + "' is not following any path"));
+        List<String> bots = BotSelector.bots(ctx, "bot");
+        int stopped = 0;
+        for (String bot : bots) {
+            if (BotPath.stopFollowing(bot)) stopped++;
+        }
+        if (stopped == 0) {
+            source.sendFailure(Component.literal(bots.size() == 1
+                ? "Bot '" + bots.get(0) + "' is not following any path"
+                : "None of those bots are following a path"));
             return 0;
         }
+        String what = bots.size() == 1 ? "Bot '" + bots.get(0) + "'" : stopped + " bots";
+        source.sendSuccess(() -> Component.literal(what + " stopped following path"), true);
+        return stopped;
     }
 
     private static int pathWalkType(CommandContext<CommandSourceStack> ctx) {
@@ -1073,26 +1122,26 @@ public class BotCommand {
         }
     }
 
-    private static int kitGive(CommandContext<CommandSourceStack> ctx) {
+    private static int kitGive(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String playername = StringArgumentType.getString(ctx, "playername");
         String kitname = StringArgumentType.getString(ctx, "kitname");
         if (!BotKits.kitExists(kitname)) {
             source.sendFailure(Component.literal("Kit '" + kitname + "' not found!"));
             return 0;
         }
-        var player = source.getServer().getPlayerList().getPlayer(playername);
-        if (player == null) {
-            source.sendFailure(Component.literal("Player '" + playername + "' not found!"));
-            return 0;
+        List<ServerPlayer> players = BotSelector.onlinePlayers(ctx, "playername");
+        int given = 0;
+        for (ServerPlayer player : players) {
+            if (BotKits.giveKit(kitname, player)) given++;
         }
-        if (BotKits.giveKit(kitname, player)) {
-            source.sendSuccess(() -> Component.literal("Gave kit '" + kitname + "' to '" + playername + "'"), true);
-            return 1;
-        } else {
+        if (given == 0) {
             source.sendFailure(Component.literal("Failed to give kit!"));
             return 0;
         }
+        String who = players.size() == 1 ? "'" + players.get(0).getName().getString() + "'"
+            : given + " players";
+        source.sendSuccess(() -> Component.literal("Gave kit '" + kitname + "' to " + who), true);
+        return given;
     }
 
     private static int kitList(CommandContext<CommandSourceStack> ctx) {
@@ -1148,30 +1197,40 @@ public class BotCommand {
         }
     }
 
-    private static int factionAdd(CommandContext<CommandSourceStack> ctx) {
+    private static int factionAdd(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
         String faction = StringArgumentType.getString(ctx, "faction");
-        String player = StringArgumentType.getString(ctx, "player");
-        if (BotFaction.addMember(faction, player)) {
-            source.sendSuccess(() -> Component.literal("Added '" + player + "' to faction '" + faction + "'"), true);
-            return 1;
-        } else {
+        List<String> players = BotSelector.playerNames(ctx, "player");
+        int changed = 0;
+        for (String player : players) {
+            if (BotFaction.addMember(faction, player)) changed++;
+        }
+        String who = players.size() == 1 ? "'" + players.get(0) + "'" : players.size() + " players";
+        if (changed == 0) {
             source.sendFailure(Component.literal("Faction '" + faction + "' not found!"));
             return 0;
         }
+        String done = players.size() == 1 ? who : changed + " players";
+        source.sendSuccess(() -> Component.literal("Added " + done + " to faction '" + faction + "'"), true);
+        return changed;
     }
 
-    private static int factionRemove(CommandContext<CommandSourceStack> ctx) {
+    private static int factionRemove(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
         String faction = StringArgumentType.getString(ctx, "faction");
-        String player = StringArgumentType.getString(ctx, "player");
-        if (BotFaction.removeMember(faction, player)) {
-            source.sendSuccess(() -> Component.literal("Removed '" + player + "' from faction '" + faction + "'"), true);
-            return 1;
-        } else {
-            source.sendFailure(Component.literal("Failed to remove '" + player + "' from faction '" + faction + "'"));
+        List<String> players = BotSelector.playerNames(ctx, "player");
+        int changed = 0;
+        for (String player : players) {
+            if (BotFaction.removeMember(faction, player)) changed++;
+        }
+        String who = players.size() == 1 ? "'" + players.get(0) + "'" : players.size() + " players";
+        if (changed == 0) {
+            source.sendFailure(Component.literal("Failed to remove " + who + " from faction '" + faction + "'"));
             return 0;
         }
+        String done = players.size() == 1 ? who : changed + " players";
+        source.sendSuccess(() -> Component.literal("Removed " + done + " from faction '" + faction + "'"), true);
+        return changed;
     }
 
     private static int factionHostile(CommandContext<CommandSourceStack> ctx, boolean isHostile) {
@@ -1273,10 +1332,10 @@ public class BotCommand {
         return count;
     }
 
-    private static int factionAttack(CommandContext<CommandSourceStack> ctx) {
+    private static int factionAttack(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
         String faction = StringArgumentType.getString(ctx, "faction");
-        String target = StringArgumentType.getString(ctx, "target");
+        String target = BotSelector.playerNames(ctx, "target").get(0);
         if (!BotFaction.getAllFactions().contains(faction)) {
             source.sendFailure(Component.literal("Faction '" + faction + "' not found!"));
             return 0;
@@ -1752,30 +1811,28 @@ public class BotCommand {
         return 1;
     }
 
-    private static int botProfile(CommandContext<CommandSourceStack> ctx) {
+    private static int botProfile(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         var source = ctx.getSource();
-        String name = StringArgumentType.getString(ctx, "botname");
-        if (!BotManager.isBot(name)) {
-            source.sendFailure(Component.literal("Bot '" + name + "' not found!"));
-            return 0;
-        }
-        var target = BotCombat.getTarget(name);
+        List<String> bots = BotSelector.bots(ctx, "botname");
+        for (String name : bots) {
+            var target = BotCombat.getTarget(name);
 
-        source.sendSuccess(() -> Component.literal("=== " + name + " ==="), false);
-        source.sendSuccess(() -> Component.literal("Target: "
-            + (target != null ? target.getName().getString() : "none")), false);
-        source.sendSuccess(() -> Component.literal("Doing: "
-            + scriptify.bots.ai.Maneuver.intentOf(name).name().toLowerCase(java.util.Locale.ROOT)), false);
-        if (scriptify.bots.ai.Engagement.inBrawl(name)) {
-            source.sendSuccess(() -> Component.literal("In a brawl as "
-                + scriptify.bots.ai.Engagement.roleOf(name).name().toLowerCase(java.util.Locale.ROOT)
-                + " (" + scriptify.bots.ai.Engagement.allyCount(name) + " allies, "
-                + scriptify.bots.ai.Engagement.enemyCount(name) + " enemies)"), false);
-            var focus = scriptify.bots.ai.Engagement.focusFor(name);
-            source.sendSuccess(() -> Component.literal("Group focus: "
-                + (focus != null ? focus.getName().getString() : "none")), false);
+            source.sendSuccess(() -> Component.literal("=== " + name + " ==="), false);
+            source.sendSuccess(() -> Component.literal("Target: "
+                + (target != null ? target.getName().getString() : "none")), false);
+            source.sendSuccess(() -> Component.literal("Doing: "
+                + scriptify.bots.ai.Maneuver.intentOf(name).name().toLowerCase(java.util.Locale.ROOT)), false);
+            if (scriptify.bots.ai.Engagement.inBrawl(name)) {
+                source.sendSuccess(() -> Component.literal("In a brawl as "
+                    + scriptify.bots.ai.Engagement.roleOf(name).name().toLowerCase(java.util.Locale.ROOT)
+                    + " (" + scriptify.bots.ai.Engagement.allyCount(name) + " allies, "
+                    + scriptify.bots.ai.Engagement.enemyCount(name) + " enemies)"), false);
+                var focus = scriptify.bots.ai.Engagement.focusFor(name);
+                source.sendSuccess(() -> Component.literal("Group focus: "
+                    + (focus != null ? focus.getName().getString() : "none")), false);
+            }
         }
-        return 1;
+        return bots.size();
     }
 
 }

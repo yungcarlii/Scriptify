@@ -133,7 +133,8 @@ public class BotTicker {
             // out of a cobweb: those are committed actions running on their own timers, and
             // stretching one is the difference between a bot that reacts slowly and a bot that
             // is visibly broken.
-            boolean committed = techniqueBusy || !BotUtils.canAct(bot);
+            boolean committed = techniqueBusy || !BotUtils.canAct(bot)
+                || scriptify.bots.ai.CobwebTactics.isBusy(botName);
             if (!committed && !LoadGovernor.shouldThink(bot, profile, serverTick)) {
                 continue;
             }
@@ -155,7 +156,10 @@ public class BotTicker {
                 BotCombat.update(bot, server, serverTick);
             }
 
-            if (BotPath.isFollowing(botName)) {
+            // Not while its hands are busy: getting out of a web, fetching the water back, eating.
+            // Walking the route there turned the head away from the bucket it was aiming, every tick.
+            if (BotPath.isFollowing(botName) && BotUtils.canAct(bot)
+                && !scriptify.bots.ai.CobwebTactics.isBusy(botName)) {
                 tickPathFollowing(bot, botName, profile);
             }
 

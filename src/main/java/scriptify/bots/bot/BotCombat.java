@@ -153,7 +153,7 @@ public class BotCombat {
         CombatState state = getState(botName);
 
         tickCooldowns(state);
-        CobwebTactics.tickTimers(botName);
+        CobwebTactics.tickTimers(bot);
 
         if (!settings.isCombatEnabled()) {
             releaseShield(bot, state, server);
@@ -190,11 +190,14 @@ public class BotCombat {
                 // Keep them in view while backing off to eat. Eating with your back turned is
                 // how you get hit in the back of the head.
                 AimController.lookAt(bot, state.target, profile);
-                double gap = bot.distanceTo(state.target);
-                var order = scriptify.bots.ai.Maneuver.resolve(bot, state.target, profile,
-                    BotSettings.get(), gap, 0f, serverTick);
-                BotNavigation.moveCombat(bot, order.goal(), order.speed() * 0.8, profile, 0.6,
-                    BotSettings.get().getSquadSpacing());
+                // Healing inside a cocoon: there is nowhere to go, and trying only drags at the web.
+                if (!CobwebTactics.isSheltering(botName)) {
+                    double gap = bot.distanceTo(state.target);
+                    var order = scriptify.bots.ai.Maneuver.resolve(bot, state.target, profile,
+                        BotSettings.get(), gap, 0f, serverTick);
+                    BotNavigation.moveCombat(bot, order.goal(), order.speed() * 0.8, profile, 0.6,
+                        BotSettings.get().getSquadSpacing());
+                }
             }
             return;
         }
@@ -226,8 +229,14 @@ public class BotCombat {
 
         // --- emergency: cobweb cocoon -----------------------------------------------------
         if (CobwebTactics.tickBubble(bot, target, profile, server)) return;
-        if (CobwebTactics.shouldBubble(bot, target, profile, settings, distance)) {
-            CobwebTactics.beginBubble(botName);
+        if (CobwebTactics.isSheltering(botName)) {
+            shelter(bot, target, state, profile, settings, distance, visible, server);
+            return;
+        }
+        boolean pressured = System.currentTimeMillis() - state.lastAttackTime < BUBBLE_PRESSURE_MS;
+        if (CobwebTactics.shouldBubble(bot, target, profile, settings, distance, pressured)) {
+            CobwebTactics.beginBubble(bot, target, profile);
+            CobwebTactics.tickBubble(bot, target, profile, server);
             return;
         }
 
@@ -366,6 +375,9 @@ public class BotCombat {
         if (state.isDrawingBow) stopBow(bot, state);
         releaseShield(bot, state, server);
         state.disengageThreshold = -1;
+        // A bot on a route is walked by the route. Wandering as well had the two pulling at the
+        // same bot on the same tick, which read as a stagger along the path.
+        if (BotPath.isFollowing(bot.getName().getString())) return;
         BotNavigation.idleWander(bot);
     }
 
@@ -435,7 +447,9 @@ public class BotCombat {
         double critRate = state.intent == scriptify.bots.ai.Maneuver.Intent.CRIT_HUNT
             ? Math.max(0.8, profile.critRate())
             : profile.critRate();
-        if (settings.isCriticalsEnabled() && profile.tech(critRate)) {
+        // Never in water: the game does not allow a critical hit from water, and a player standing
+        // in it does not hop for one. A bot that did was leaping out of every puddle it fought in.
+        if (settings.isCriticalsEnabled() && !bot.isInWater() && profile.tech(critRate)) {
             if (bot.onGround() && !state.critJumpPending) {
                 bot.jumpFromGround();
                 state.critJumpPending = true;
@@ -594,6 +608,33 @@ public class BotCombat {
                 state.pearlCooldown = Rng.range(profile.rng(), 120, 260);
             }
         }
+    }
+
+    /**
+     * Sat in its own cocoon, healing.
+     *
+     * <p>No movement - it is in a web, and struggling against one is not what anybody does once they
+     * have chosen to be in it. It keeps its eyes on whoever is outside and hits back at anyone who
+     * reaches in, with a sword rather than with whatever it was holding to place the webs.</p>
+     */
+    private static void shelter(ServerPlayer bot, Entity target, CombatState state,
+                                BotProfile profile, BotSettings settings, double distance,
+                                boolean visible, MinecraftServer server) {
+        if (state.isDrawingBow) stopBow(bot, state);
+        releaseShield(bot, state, server);
+        aim(bot, target, state, profile);
+
+        if (!visible || distance > profile.reach || state.attackCooldown > 0) return;
+        var inv = bot.getInventory();
+        if (!WeaponSelector.isMeleeWeapon(Inv.held(inv))) {
+            // Swapping resets the swing, so the hit waits for the next ticks rather than landing
+            // as a weak one now.
+            int melee = WeaponSelector.bestMeleeSlot(inv, settings.isPreferSword() && !profile.mainsAxe);
+            if (melee >= 0) Inv.equip(inv, melee, 0);
+            return;
+        }
+        if (bot.getAttackStrengthScale(0.5f) < profile.cooldownDiscipline()) return;
+        strike(bot, target, state, profile, settings, server);
     }
 
     // ===================== ranged =====================
@@ -1059,6 +1100,12 @@ public class BotCombat {
 
     /** Share of crit hops the bot crouches through. */
     private static final double CRIT_CROUCH_CHANCE = 0.06;
+
+    /**
+     * How recently a hit has to have landed for webbing up to be an answer to it, in milliseconds.
+     * Low health on its own is a reason to heal, not to seal yourself in.
+     */
+    private static final long BUBBLE_PRESSURE_MS = 2500;
 
     /**
      * How far outside melee range a bot walks in behind its shield.

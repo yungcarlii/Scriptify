@@ -46,6 +46,15 @@ public class BotPath {
         public boolean reverse = false;
         public Vec3 pausedAtPoint = null;
         public boolean inCombat = false;
+        /**
+         * Walking the route as a patrol: fight whatever comes into view, then go back to walking.
+         * Set by {@code /bots bot-management combatpath}. Unlike the route's own attack flag this
+         * does not lean on auto-targeting being switched on - a patrol bot looks for trouble on its
+         * own, but only trouble it can actually see.
+         */
+        public boolean combatPath = false;
+        /** How far a patrolling bot can spot an enemy from, in blocks. */
+        public double sightRange = DEFAULT_SIGHT_RANGE;
         
         public PathFollower(String pathName) {
             this.pathName = pathName;
@@ -163,6 +172,36 @@ public class BotPath {
     }
     
     
+    /** Spotting distance for a patrol when the command does not give one. */
+    public static final double DEFAULT_SIGHT_RANGE = 24.0;
+
+    /**
+     * Puts a bot on a route as a patrol: it walks the route, breaks off to fight any enemy it
+     * sees, and picks the route back up where it left it once the fight is over.
+     */
+    public static boolean startCombatPath(String botName, String pathName, double sightRange) {
+        if (!startFollowing(botName, pathName)) {
+            return false;
+        }
+        PathFollower follower = followers.get(botName);
+        follower.combatPath = true;
+        follower.sightRange = sightRange;
+        saveFollowers();
+        return true;
+    }
+
+    /** Whether this bot is patrolling a route rather than just walking it. */
+    public static boolean isCombatPath(String botName) {
+        PathFollower follower = followers.get(botName);
+        return follower != null && follower.combatPath;
+    }
+
+    /** How far a patrolling bot spots enemies from; zero for a bot that is not patrolling. */
+    public static double sightRange(String botName) {
+        PathFollower follower = followers.get(botName);
+        return follower != null && follower.combatPath ? follower.sightRange : 0.0;
+    }
+
     public static boolean stopFollowing(String botName) {
         boolean removed = followers.remove(botName) != null;
         if (removed) {
@@ -318,6 +357,9 @@ public class BotPath {
         if (follower == null) {
             return true;
         }
+        if (follower.combatPath) {
+            return true;
+        }
         
         PathData path = paths.get(follower.pathName);
         return path != null && path.attack;
@@ -366,7 +408,7 @@ public class BotPath {
         Map<String, StoredFollower> stored = new HashMap<>();
         followers.forEach((bot, follower) ->
             stored.put(bot, new StoredFollower(follower.pathName, follower.currentPoint,
-                follower.reverse)));
+                follower.reverse, follower.combatPath, follower.sightRange)));
         scriptify.storage.JsonFile.write(GSON, followerPath, stored,
             scriptify.bots.BotRuntime.LOGGER, "bot path followers");
     }
@@ -376,11 +418,17 @@ public class BotPath {
         String pathName;
         int currentPoint;
         boolean reverse;
+        // Absent from files written before patrols existed, which reads as an ordinary walker.
+        boolean combatPath;
+        double sightRange;
 
-        StoredFollower(String pathName, int currentPoint, boolean reverse) {
+        StoredFollower(String pathName, int currentPoint, boolean reverse,
+                       boolean combatPath, double sightRange) {
             this.pathName = pathName;
             this.currentPoint = currentPoint;
             this.reverse = reverse;
+            this.combatPath = combatPath;
+            this.sightRange = sightRange;
         }
     }
 
@@ -405,6 +453,8 @@ public class BotPath {
                 PathFollower follower = new PathFollower(saved.pathName);
                 follower.currentPoint = saved.currentPoint;
                 follower.reverse = saved.reverse;
+                follower.combatPath = saved.combatPath;
+                follower.sightRange = saved.sightRange > 0 ? saved.sightRange : DEFAULT_SIGHT_RANGE;
                 followers.put(bot, follower);
             });
             if (!followers.isEmpty()) {

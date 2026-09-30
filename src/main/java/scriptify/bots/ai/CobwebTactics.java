@@ -7,6 +7,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.ClipContext;
@@ -56,23 +57,76 @@ public final class CobwebTactics {
         public boolean bubbling;
         public int bubbleTicks;
         public int bubbleCooldown;
-        public int bubblePlaced;
         /** Ticks to hold the aim before clicking again, so placements are not spammed. */
         public int bubblePlaceDelay;
+
+        /** Which web of the cocoon is being placed: {@link #STEP_FEET} and on. */
+        public int bubbleStep;
+        /** Ticks spent on the current web, so one awkward cell cannot stall the whole cocoon. */
+        public int stepTicks;
+        /** How many webs this cocoon is going to be: two, or three with one on the attacker's side. */
+        public int bubbleGoal;
+        /** Where the bot is standing, fixed once the first web holds it there. */
+        public BlockPos bubbleFeet;
+        /** Toward the attacker, decided when the cocoon starts. */
+        public Direction bubbleSide;
+        /** Ticks since the cocoon was started, counted even on ticks nothing else runs. */
+        public int bubbleAge;
+
+        /** Built, and healing inside it. */
+        public boolean sheltering;
+        public int shelterTicks;
+        public int shelterLimit;
+
+        /**
+         * Whether this stretch of low health has already had its decision.
+         *
+         * <p>Webbing yourself is a call a player makes once when things go wrong, not a dice roll
+         * they keep making every tick until it comes up. Reset when health recovers.</p>
+         */
+        public boolean bubbleConsidered;
     }
 
+    // ----- the cocoon, in the order it goes up --------------------------------------------
+    /** The cell the bot stands in: this is the web that stops knockback. */
+    private static final int STEP_FEET = 0;
+    /** Beside the bot, toward the attacker: they have to come through it to reach in. */
+    private static final int STEP_SIDE = 1;
     /**
-     * Webs that make a cocoon worth the name.
-     *
-     * <p>One web is not a cocoon. It stops the bot moving and nothing else - the attacker walks
-     * around it and carries on, and the bot has spent its emergency on being easier to hit. The
-     * cell the bot stands in and the cell its head is in are the minimum, because together they
-     * are what stops knockback and slows a weapon reaching through.</p>
+     * Head height, placed by clicking the top of the web at the feet. Always last: once the head is
+     * inside a web, every click lands on that web, so nothing else can be placed from in there.
      */
+    private static final int STEP_HEAD = 2;
+    private static final int STEP_DONE = 3;
+
+    /** Webs a bot needs in its bag before a cocoon is worth starting. */
     private static final int MIN_BUBBLE_WEBS = 2;
 
-    /** And no more than this, or it stops reading as panic and starts reading as construction. */
-    private static final int MAX_BUBBLE_WEBS = 4;
+    /** Share of cocoons that get the third web, on the side the attacker is on. */
+    private static final double THIRD_WEB_CHANCE = 0.5;
+
+    /** Health below which webbing yourself becomes an option at all. */
+    private static final double BUBBLE_HEALTH = 0.28;
+
+    /** The attacker has to be this close - on top of you, not across the arena. */
+    private static final double BUBBLE_THREAT_RANGE = 4.5;
+
+    /**
+     * How often a bot that meets every condition actually does it.
+     *
+     * <p>Plenty of players in exactly that spot just keep swinging or run. A bot that webs itself
+     * every single time it gets low is doing something no player does.</p>
+     */
+    private static final double BUBBLE_WILLINGNESS = 0.55;
+
+    /** A web gets this long to go down before the cocoon moves on to the next one. */
+    private static final int STEP_PATIENCE = 14;
+
+    /** The whole build, after which whatever is up is what the bot has. */
+    private static final int BUILD_LIMIT = 50;
+
+    /** Healthy enough to come out, once any heal in progress has finished. */
+    private static final double SHELTER_HEALED = 0.6;
 
     /** Nobody carpets the floor: at most this many webs against one opponent. */
     private static final int MAX_WEBS_PER_FIGHT = 2;
@@ -104,15 +158,38 @@ public final class CobwebTactics {
         STATES.clear();
     }
 
-    public static void tickTimers(String botName) {
-        WebState st = state(botName);
+    /**
+     * Counts down, and runs the parts of the cocoon that have to happen whether or not the combat
+     * brain gets as far as asking - it returns early for a lost target or a heal in progress, and a
+     * cocoon left waiting on that would hold the bot in its webs indefinitely.
+     */
+    public static void tickTimers(ServerPlayer bot) {
+        WebState st = state(bot.getName().getString());
         if (st.cooldown > 0) st.cooldown--;
         if (st.bubbleCooldown > 0) st.bubbleCooldown--;
+
+        if (st.bubbling && ++st.bubbleAge > BUILD_LIMIT + 20) {
+            finishBubble(bot, st);
+        }
+        if (st.sheltering) {
+            tickShelter(bot, st);
+        }
+
+        float health = bot.getHealth() / Math.max(1.0f, bot.getMaxHealth());
+        if (st.bubbleConsidered && health > 0.5f) {
+            st.bubbleConsidered = false;
+        }
     }
 
     public static boolean isBusy(String botName) {
         WebState st = state(botName);
-        return st.pendingCell != null || st.bubbling;
+        return st.pendingCell != null || st.bubbling || st.sheltering;
+    }
+
+    /** Whether the bot is sitting in its own cocoon, healing. */
+    public static boolean isSheltering(String botName) {
+        WebState st = STATES.get(scriptify.bots.utils.Names.key(botName));
+        return st != null && st.sheltering;
     }
 
     // ===================== offensive webbing =====================
@@ -224,8 +301,10 @@ public final class CobwebTactics {
         Inv.equip(bot.getInventory(), webSlot, 4);
         AimController.lookAtPrecise(bot, aim.lookPoint(), profile);
 
-        // Only click once the head has actually arrived - this is what makes it accurate.
-        if (aimedAt(bot, aim.lookPoint(), 6.0)) {
+        // Only click once the click would actually put the web in that cell - not merely once the
+        // head is near the angle. A click whose ray catches the opponent, or clips a different face
+        // on the way, does nothing, and this is where that used to burn the attempt.
+        if (st.pendingCell.equals(ClickSim.placementCell(bot))) {
             BotActions.place(bot, server);
             // Give the world a tick to register before deciding it failed.
             if (st.placeTicks >= 3) {
@@ -274,36 +353,83 @@ public final class CobwebTactics {
     // ===================== defensive bubbling =====================
 
     /**
-     * Emergency cocoon. Triggered when the bot is about to die, has webs, and is actually
-     * under threat - not merely low on health somewhere quiet.
+     * Whether to web yourself in, right now.
+     *
+     * <p>This used to fire on low health alone - any heal in the bag counted, a steak included, and
+     * the attacker only had to be somewhere within eight blocks - and it was asked every tick, so a
+     * bot that got low did it every time and again ten seconds later. Real players web themselves
+     * rarely and for a reason: somebody is on top of them <em>and</em> hitting them, they are about
+     * to die, and they have something that will actually save them once they are sealed in - a golden
+     * apple, a healing potion, a totem. Even then it is a call, made once, not a reflex.</p>
+     *
+     * @param underPressure whether the bot has taken a hit in the last couple of seconds
      */
     public static boolean shouldBubble(ServerPlayer bot, Entity target, BotProfile profile,
-                                       BotSettings settings, double distance) {
+                                       BotSettings settings, double distance,
+                                       boolean underPressure) {
         if (!settings.isCobwebBubbleEnabled()) return false;
         WebState st = state(bot.getName().getString());
-        if (st.bubbling || st.bubbleCooldown > 0) return false;
-        if (!Inv.has(bot.getInventory(), Items.COBWEB)) return false;
-        if (target == null || distance > 8.0) return false;
+        if (st.bubbling || st.sheltering || st.bubbleCooldown > 0 || st.bubbleConsidered) {
+            return false;
+        }
+        if (target == null || !target.isAlive() || distance > BUBBLE_THREAT_RANGE) return false;
+        if (!underPressure) return false;
+        // Somewhere a web will hold: standing, on dry land, not already stuck in one.
+        if (!bot.onGround() || bot.isInWater() || inWeb(bot)) return false;
+        if (Inv.count(bot.getInventory(), Items.COBWEB) < MIN_BUBBLE_WEBS) return false;
 
         float healthFraction = bot.getHealth() / Math.max(1.0f, bot.getMaxHealth());
-        double trigger = 0.25 + profile.rng().nextGaussian() * 0.03;
-        if (healthFraction > trigger) return false;
+        if (healthFraction > BUBBLE_HEALTH) return false;
+        if (!hasRealHeal(bot)) return false;
 
-        // Only worth it if there is something to gain from the time it buys.
-        return HealPlanner.hasAnyHeal(bot.getInventory())
-            || Inv.has(bot.getInventory(), Items.TOTEM_OF_UNDYING);
-    }
-
-    public static void beginBubble(String botName) {
-        WebState st = state(botName);
-        st.bubbling = true;
-        st.bubbleTicks = 0;
-        st.bubblePlaced = 0;
+        // One decision per stretch of low health. A "no" is kept for a while too, rather than the
+        // question being asked again on the very next tick until it comes up yes.
+        st.bubbleConsidered = true;
+        if (!profile.tech(BUBBLE_WILLINGNESS)) {
+            st.bubbleCooldown = Rng.range(profile.rng(), 200, 400);
+            return false;
+        }
+        return true;
     }
 
     /**
-     * Builds the cocoon: own cell first (stops knockback and slows anyone reaching in), then
-     * the side the attacker is on. Returns true while busy.
+     * Something worth sealing yourself in to use. Ordinary food is not: a steak takes as long to eat
+     * as a golden apple and heals a fraction of it, and nobody webs up to eat one.
+     */
+    private static boolean hasRealHeal(ServerPlayer bot) {
+        var inv = bot.getInventory();
+        return HealPlanner.findGapple(inv) >= 0
+            || HealPlanner.findHealPotion(inv, true) >= 0
+            || HealPlanner.findHealPotion(inv, false) >= 0
+            || Inv.has(inv, Items.TOTEM_OF_UNDYING)
+            || inv.getItem(Inv.OFFHAND).is(Items.TOTEM_OF_UNDYING);
+    }
+
+    public static void beginBubble(ServerPlayer bot, Entity threat, BotProfile profile) {
+        WebState st = state(bot.getName().getString());
+        st.bubbling = true;
+        st.bubbleTicks = 0;
+        st.bubbleAge = 0;
+        st.stepTicks = 0;
+        st.bubblePlaceDelay = 0;
+        st.bubbleStep = STEP_FEET;
+        st.bubbleFeet = null;
+        st.bubbleSide = sideToward(bot, threat);
+        st.bubbleGoal = st.bubbleSide != null && profile.tech(THIRD_WEB_CHANCE) ? 3 : 2;
+    }
+
+    /**
+     * Builds the cocoon, one web at a time: feet, then the attacker's side, then the head. Returns
+     * true while busy.
+     *
+     * <p><b>Why it used to stop at one.</b> The web at head height has to be placed against the
+     * top of the web at the feet, and the placement code only accepted blocks with a collision box to
+     * place against - a web has none. So the head cell never had a solution, and the loop, which
+     * always went back to the first unfinished cell, sat on it for four seconds and gave up. Webs are
+     * now valid supports, and a cell that cannot be done in a moment is skipped for the next.</p>
+     *
+     * <p>Every click is checked against the ray the click will actually cast (see {@link ClickSim}),
+     * so a web is only thrown when it will land where it is wanted.</p>
      */
     public static boolean tickBubble(ServerPlayer bot, Entity threat, BotProfile profile,
                                      MinecraftServer server) {
@@ -311,111 +437,160 @@ public final class CobwebTactics {
         if (!st.bubbling) return false;
 
         st.bubbleTicks++;
+        st.stepTicks++;
         if (st.bubblePlaceDelay > 0) st.bubblePlaceDelay--;
         Level world = bot.level();
+        holdStill(bot);
 
-        // The cocoon is a stalling tool, not a home. Four seconds is plenty, and it is long
-        // enough for the second web: the head has to travel between two cells at a human turn
-        // rate, and the old three-second budget was being spent on the journey.
-        if (st.bubbleTicks > 80 || st.bubblePlaced >= MAX_BUBBLE_WEBS
-            || !Inv.has(bot.getInventory(), Items.COBWEB)) {
-            st.bubbling = false;
-            st.bubbleCooldown = Rng.range(profile.rng(), 200, 400);
-            return false;
+        if (st.bubbleTicks > BUILD_LIMIT || !Inv.has(bot.getInventory(), Items.COBWEB)) {
+            finishBubble(bot, st);
+            return st.sheltering;
         }
 
-        BlockPos aimCell = nextBubbleCell(bot, threat, world);
-        if (aimCell == null) {
-            // Out of places to put one. Fine if the cocoon is built; a failure if it is not.
-            st.bubbling = false;
-            st.bubbleCooldown = st.bubblePlaced >= MIN_BUBBLE_WEBS
-                ? Rng.range(profile.rng(), 200, 400)
-                : Rng.range(profile.rng(), 120, 240);
-            return false;
+        // Until the first web is down the bot can still be knocked about, so its cell follows it.
+        // After that it is stuck where it is, and the rest of the cocoon is built around that spot.
+        if (st.bubbleStep == STEP_FEET) {
+            st.bubbleFeet = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
         }
 
-        BlockPlacer.Aim aim = BlockPlacer.solve(world, bot, aimCell);
+        BlockPos cell = cellFor(st);
+        while (cell != null && (isWeb(world, cell) || !BlockPlacer.isReplaceable(world, cell)
+            || st.stepTicks > STEP_PATIENCE)) {
+            if (st.bubbleStep == STEP_FEET && !isWeb(world, cell)) {
+                // No web at the feet means no cocoon: nothing else is worth placing without it.
+                finishBubble(bot, st);
+                return false;
+            }
+            advance(st);
+            cell = cellFor(st);
+        }
+        if (cell == null) {
+            finishBubble(bot, st);
+            return true;
+        }
+
+        BlockPlacer.Aim aim = BlockPlacer.solveVisible(world, bot, cell);
         if (aim == null) {
-            // One unreachable cell is not a reason to abandon the cocoon: the next one along may
-            // well be reachable, and giving up here is what left bots wearing a single web.
-            return st.bubbleTicks <= 80;
+            // Not from here, not yet. The step's patience runs out and the next cell is tried.
+            return true;
         }
 
         int webSlot = Inv.findItem(bot.getInventory(), Items.COBWEB);
         Inv.equip(bot.getInventory(), webSlot, 4);
         AimController.lookAtPrecise(bot, aim.lookPoint(), profile);
 
-        if (st.bubblePlaceDelay <= 0 && aimedAt(bot, aim.lookPoint(), 8.0)) {
+        if (st.bubblePlaceDelay <= 0 && cell.equals(ClickSim.placementCell(bot))) {
             BotActions.place(bot, server);
-            st.bubblePlaced++;
-            // Long enough for the placement to land and for the head to start moving to the
-            // next cell, short enough that a cocoon still goes up in well under a second.
-            st.bubblePlaceDelay = 3;
+            // A few ticks between clicks: long enough for the web to land and the head to move on,
+            // short enough that the whole cocoon goes up in well under a second.
+            st.bubblePlaceDelay = Rng.range(profile.rng(), 2, 4);
         }
-        // Stand still inside the web so we do not walk out of our own cover.
-        bot.zza = 0;
-        bot.xxa = 0;
-        bot.setSprinting(false);
         return true;
     }
 
+    private static BlockPos cellFor(WebState st) {
+        if (st.bubbleFeet == null) return null;
+        return switch (st.bubbleStep) {
+            case STEP_FEET -> st.bubbleFeet;
+            case STEP_SIDE -> st.bubbleSide == null ? null : st.bubbleFeet.relative(st.bubbleSide);
+            case STEP_HEAD -> st.bubbleFeet.above();
+            default -> null;
+        };
+    }
+
+    private static void advance(WebState st) {
+        st.bubbleStep++;
+        if (st.bubbleStep == STEP_SIDE && st.bubbleGoal < 3) st.bubbleStep++;
+        st.stepTicks = 0;
+        st.bubblePlaceDelay = 0;
+    }
+
+    /** Ends the build, and settles in to heal if there is a cocoon to heal in. */
+    private static void finishBubble(ServerPlayer bot, WebState st) {
+        st.bubbling = false;
+        boolean built = st.bubbleFeet != null && isWeb(bot.level(), st.bubbleFeet);
+        BotProfile profile = BotProfile.of(bot.getName().getString());
+        if (built) {
+            st.sheltering = true;
+            st.shelterTicks = 0;
+            st.shelterLimit = Rng.range(profile.rng(), 70, 140);
+        }
+        // A player who has just webbed up does not do it again for a good while.
+        st.bubbleCooldown = Rng.range(profile.rng(), 900, 1600);
+    }
+
     /**
-     * The next cell of the cocoon that still needs filling.
+     * Sitting in the cocoon.
      *
-     * <p>Ordered by what each web actually buys. The cell the bot stands in stops knockback; the
-     * cell its head is in stops a weapon reaching through at the height a weapon swings; the
-     * cell on the attacker's side is the one they have to come through. Anything already webbed
-     * is skipped, so this walks the cocoon forward rather than re-solving the same spot.</p>
+     * <p>The point of it is the heal, so the bot stays in until the heal has done its work - or the
+     * webs are gone, or there is nothing left to heal with, or it has been long enough that staying
+     * is just waiting to be dug out. Then it leaves the way anybody leaves a web: water, or a sword.
+     * The old cocoon skipped this entirely: the moment the last web went down the escape code saw a
+     * webbed bot and cut it straight back out, before it had eaten anything.</p>
      */
-    private static BlockPos nextBubbleCell(ServerPlayer bot, Entity threat, Level world) {
-        BlockPos self = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
+    private static void tickShelter(ServerPlayer bot, WebState st) {
+        st.shelterTicks++;
+        var utils = scriptify.bots.bot.BotUtils.getState(bot.getName().getString());
+        boolean healing = utils.isEating || utils.isThrowingPotion;
+        float health = bot.getHealth() / Math.max(1.0f, bot.getMaxHealth());
 
-        BlockPos[] wanted = new BlockPos[3];
-        wanted[0] = self;
-        wanted[1] = self.above();
-        if (threat != null) {
-            double dx = threat.getX() - bot.getX();
-            double dz = threat.getZ() - bot.getZ();
-            double len = Math.hypot(dx, dz);
-            if (len > 1.0E-4) {
-                wanted[2] = BlockPos.containing(
-                    bot.getX() + dx / len, bot.getY() + 0.1, bot.getZ() + dz / len);
-            }
+        boolean websGone = !inWeb(bot);
+        boolean healed = health >= SHELTER_HEALED && !healing;
+        boolean nothingLeft = !healing && !hasRealHeal(bot) && st.shelterTicks > 30;
+        if (websGone || healed || nothingLeft || st.shelterTicks > st.shelterLimit) {
+            st.sheltering = false;
         }
+    }
 
-        for (BlockPos cell : wanted) {
-            if (cell == null) continue;
-            if (world.getBlockState(cell).is(Blocks.COBWEB)) continue;
-            if (!BlockPlacer.isReplaceable(world, cell)) continue;
-            return cell;
+    /**
+     * Kills horizontal drift while building. The first web stops knockback outright; this is for the
+     * moment before it lands.
+     */
+    private static void holdStill(ServerPlayer bot) {
+        bot.setSprinting(false);
+        Vec3 v = bot.getDeltaMovement();
+        bot.setDeltaMovement(v.x * 0.3, v.y, v.z * 0.3);
+    }
+
+    private static boolean isWeb(Level world, BlockPos pos) {
+        return world.getBlockState(pos).is(Blocks.COBWEB);
+    }
+
+    /** The horizontal direction of the threat, or null with nobody to face. */
+    private static Direction sideToward(ServerPlayer bot, Entity threat) {
+        if (threat == null) return null;
+        double dx = threat.getX() - bot.getX();
+        double dz = threat.getZ() - bot.getZ();
+        if (Math.abs(dx) < 1.0E-3 && Math.abs(dz) < 1.0E-3) return null;
+        if (Math.abs(dx) > Math.abs(dz)) {
+            return dx > 0 ? Direction.EAST : Direction.WEST;
         }
-        return null;
+        return dz > 0 ? Direction.SOUTH : Direction.NORTH;
     }
 
     /** True when the bot is currently stuck inside a web. */
     public static boolean inWeb(ServerPlayer bot) {
-        return webHoldingBot(bot) != null;
+        return !websTouching(bot).isEmpty();
     }
 
     /**
-     * The cobweb block a stuck bot should actually break.
+     * Every cobweb the bot's hitbox is in - which is exactly the set the game slows it for.
      *
-     * <p>Prefers the one at eye level, then the one at the feet. That order matters: a player
-     * standing in a web looks at the web <em>in front of their face</em>, not at the floor.
-     * Aiming at the block under your feet points the crosshair down past it and into the
-     * ground - which is why bots used to stand in a web mining the dirt below them.</p>
+     * <p>Taken from the hitbox rather than from a few sample points down the middle of the body.
+     * The samples missed a web that only caught the bottom of the box, which is what happens to a
+     * bot webbed mid-jump: it was judged free while still stuck, collected its water too early, and
+     * had to pour again.</p>
      */
-    public static BlockPos webHoldingBot(ServerPlayer bot) {
+    public static java.util.List<BlockPos> websTouching(ServerPlayer bot) {
         Level world = bot.level();
-        BlockPos eyes = BlockPos.containing(bot.getEyePosition().x, bot.getEyePosition().y, bot.getEyePosition().z);
-        if (world.getBlockState(eyes).is(Blocks.COBWEB)) return eyes;
-
-        BlockPos feet = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
-        if (world.getBlockState(feet).is(Blocks.COBWEB)) return feet;
-
-        BlockPos chest = feet.above();
-        if (world.getBlockState(chest).is(Blocks.COBWEB)) return chest;
-        return null;
+        var box = bot.getBoundingBox().deflate(1.0E-3);
+        java.util.List<BlockPos> webs = new java.util.ArrayList<>(4);
+        for (BlockPos pos : BlockPos.betweenClosed(
+                BlockPos.containing(box.minX, box.minY, box.minZ),
+                BlockPos.containing(box.maxX, box.maxY, box.maxZ))) {
+            if (world.getBlockState(pos).is(Blocks.COBWEB)) webs.add(pos.immutable());
+        }
+        return webs;
     }
 
     /**
@@ -436,18 +611,17 @@ public final class CobwebTactics {
         BlockPos feet = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
         BlockPos eyeCell = BlockPos.containing(eye.x, eye.y, eye.z);
 
-        // The cell the eyes are inside is deliberately not a candidate, and that is the whole
-        // point of this list. You cannot click the block your head is in - a ray starting inside
-        // a shape does not intersect it, so the click passes straight through to whatever is
-        // beyond. Aiming at it produced a point a few centimetres from the eye, which no head
-        // turn can ever be "pointed at" to within any sane tolerance, so the bot stood in the web
-        // turning its head and never clicking at all. What can be hit is the web in front, or the
-        // one under your feet, which is exactly what a person reaches for.
-        BlockPos[] candidates = {
+        // The cell the eyes are inside is deliberately not a candidate. There is nothing to aim at
+        // in it: a point inside it is a few centimetres from the eye, which no head turn can be
+        // "pointed at", and it needs no aiming anyway - a click from inside a web lands on that
+        // web whichever way the head faces. What wants aiming is the web in front, or the one
+        // under your feet, which is exactly what a person reaches for; then anything else the
+        // hitbox is caught in, such as a web around the ankles of a bot webbed mid-jump.
+        java.util.List<BlockPos> candidates = new java.util.ArrayList<>(java.util.List.of(
             eyeCell.north(), eyeCell.east(), eyeCell.south(), eyeCell.west(),
             feet,
-            feet.above(2),
-        };
+            feet.above(2)));
+        candidates.addAll(websTouching(bot));
 
         for (BlockPos cell : candidates) {
             if (cell.equals(eyeCell)) continue;
@@ -476,17 +650,5 @@ public final class CobwebTactics {
             if (hit.getType() == HitResult.Type.MISS) return point;
         }
         return null;
-    }
-
-    private static boolean aimedAt(ServerPlayer bot, Vec3 point, double toleranceDegrees) {
-        Vec3 eye = bot.getEyePosition();
-        double dx = point.x - eye.x;
-        double dy = point.y - eye.y;
-        double dz = point.z - eye.z;
-        double horiz = Math.sqrt(dx * dx + dz * dz);
-        float wantYaw = (float) (Math.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0f;
-        float wantPitch = (float) -(Math.atan2(dy, horiz) * (180.0 / Math.PI));
-        return Math.abs(AimController.wrap(wantYaw - bot.getYRot())) <= toleranceDegrees
-            && Math.abs(AimController.wrap(wantPitch - bot.getXRot())) <= toleranceDegrees;
     }
 }
