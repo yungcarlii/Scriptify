@@ -274,21 +274,26 @@ public class BotCombat {
             return;
         }
 
-        // --- a drop in the way: bridge across it ------------------------------------------
-        // Bridging is tried before towering on purpose. Both fire when the bot cannot walk to
-        // its target, and a bot that answers "there is a hole in front of me" by building a
-        // pillar straight up is the wrong answer to the obvious question.
-        if (settings.isBridgingEnabled()
-            && Bridger.shouldBridgeGap(bot, target)
-            && Bridger.tickGap(bot, target, profile, server)) {
-            return;
-        }
-
-        // --- target is somewhere we cannot walk to ------------------------------------------
-        if (settings.isBridgingEnabled()
-            && Bridger.shouldEngage(bot, target, BotNavigation.pathBlocked(botName))
-            && Bridger.tick(bot, target, profile, server)) {
-            return;
+        // --- somewhere we cannot walk to: build ------------------------------------------
+        // Up before across. A target that is higher and over a gap is reached by towering to its
+        // level first and bridging over at that height - bridge first, and the bot arrives under
+        // the far ledge with its head against the underside and no room left to climb.
+        // Bridging still comes before a climb that is not needed: a bot that answers "there is a
+        // hole in front of me" by building a pillar straight up is answering the wrong question.
+        if (settings.isBridgingEnabled()) {
+            boolean gap = Bridger.shouldBridgeGap(bot, target);
+            boolean climb = Bridger.shouldEngage(bot, target,
+                gap || BotNavigation.pathBlocked(botName));
+            // The climb can end on this very call, and the gap test above was answered while it
+            // was still on - so ask again. Otherwise one tick of ordinary combat slips between
+            // the two, and one tick is all a bunny hop off the top of the new pillar needs.
+            if (!climb && !gap) gap = Bridger.shouldBridgeGap(bot, target);
+            if (climb && Bridger.tick(bot, target, profile, server)) {
+                return;
+            }
+            if (gap && Bridger.tickGap(bot, target, profile, server)) {
+                return;
+            }
         }
 
         // --- mace: commit to a launch before anything picks a weapon ----------------------
@@ -420,7 +425,22 @@ public class BotCombat {
         // them swing into a counter instead of a block.
         if (state.feintTicks > 0) return;
 
-        if (!visible || distance > reach) return;
+        // In reach by either measure. Feet to feet is the bot's own sense of distance and what
+        // its spacing is built on, but it counts a height difference in full: stood a block below
+        // somebody on a pillar, eyes level with their chest and two blocks from them, it read as
+        // out of reach and the bot stood there with its sword out. The server measures from the
+        // eyes to the hitbox, so that decides it whenever the two disagree.
+        //
+        // And when the bot cannot step any closer - held back at an edge, or looking up at
+        // someone on a ledge - it swings at whatever range the server allows, rather than
+        // waiting for a gap it will never get to close.
+        double gapToTarget = reachGap(bot, target);
+        boolean cannotClose = BotNavigation.getState(botName).edgeHeld
+            || target.getY() - bot.getY() > 0.6;
+        boolean inReach = distance <= reach
+            || gapToTarget <= Math.max(reach - 0.3, SHORT_REACH_FLOOR)
+            || (cannotClose && gapToTarget <= ATTACK_REACH - 0.2);
+        if (!visible || !inReach) return;
         if (state.attackCooldown > 0) return;
 
         // 1.9+ combat: hitting before the cooldown refills throws away most of the damage.
@@ -450,7 +470,10 @@ public class BotCombat {
         // Never in water: the game does not allow a critical hit from water, and a player standing
         // in it does not hop for one. A bot that did was leaping out of every puddle it fought in.
         if (settings.isCriticalsEnabled() && !bot.isInWater() && profile.tech(critRate)) {
-            if (bot.onGround() && !state.critJumpPending) {
+            // Not on a bridge or a ledge: a crit hop takes the knockback of the hit it lands with,
+            // and a player one block from the void does not jump.
+            if (bot.onGround() && !state.critJumpPending
+                && !BotNavigation.getState(botName).narrowFooting) {
                 bot.jumpFromGround();
                 state.critJumpPending = true;
                 state.critFallTicks = 0;
@@ -1036,6 +1059,13 @@ public class BotCombat {
      * however well aimed it is.
      */
     private static final double ATTACK_REACH = 2.9;
+
+    /**
+     * Eye-to-hitbox gap inside which any bot will swing, however short its own reach. A personal
+     * reach can roll as low as one and a half blocks, and a bot that only swings that close stood
+     * at arm's length from its target holding a sword.
+     */
+    private static final double SHORT_REACH_FLOOR = 2.2;
 
     /**
      * Distance from the bot's eyes to the closest point of the target's hitbox - the same

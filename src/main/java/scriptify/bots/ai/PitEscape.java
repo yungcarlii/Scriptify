@@ -73,6 +73,9 @@ public final class PitEscape {
         /** The cell currently being mined, so the aim does not wander between candidates. */
         BlockPos digging;
         int digTicks;
+        /** The next cell on the way up and out, being walked to; null when not climbing out. */
+        BlockPos climbTo;
+        int climbTicks;
     }
 
     private static final Map<String, State> STATES = new HashMap<>();
@@ -113,13 +116,22 @@ public final class PitEscape {
         // makes this affordable to ask of every bot.
         if (serverTick - st.lastCheck >= CHECK_INTERVAL) {
             st.lastCheck = serverTick;
-            st.boxedIn = bot.onGround() && hasSomewhereToBe(name) && boxedIn(bot);
+            st.boxedIn = false;
+            if (bot.onGround() && hasSomewhereToBe(name)) {
+                Survey survey = survey(bot);
+                st.boxedIn = survey.confined();
+                if (survey.climbTo() != null && st.climbTo == null) {
+                    st.climbTo = survey.climbTo();
+                    st.climbTicks = 0;
+                }
+            }
         }
 
         if (!st.boxedIn) {
             if (st.escaping) stop(bot, st, server);
-            return false;
+            return climbOut(bot, st, profile, server);
         }
+        st.climbTo = null;
         if (st.cooldown > 0) return false;
 
         if (!st.escaping) {
@@ -146,26 +158,156 @@ public final class PitEscape {
         return BotPath.isFollowing(botName);
     }
 
-    /**
-     * Whether the bot is in a hole rather than merely beside something.
-     *
-     * <p>All four sides, because three is a corner and a corner is somewhere you walk out of. A
-     * side stops counting as a wall the moment it can be stepped onto - solid at foot level with
-     * two clear cells above it - since that is a stair, not an obstacle.</p>
-     */
-    private static boolean boxedIn(ServerPlayer bot) {
-        Level world = bot.level();
-        BlockPos feet = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
+    /** How far the survey looks from the bot, in blocks, each way. */
+    private static final int SURVEY_RADIUS = 4;
 
-        for (Direction dir : Direction.Plane.HORIZONTAL) {
-            BlockPos ahead = feet.relative(dir);
-            if (!blocks(world, ahead)) return false;                 // open: walk out
-            if (!blocks(world, ahead.above()) && !blocks(world, ahead.above(2))) {
-                return false;                                        // a step up: walk out
+    /** Most cells the survey visits; plenty for a radius of four. */
+    private static final int SURVEY_LIMIT = 250;
+
+    /** Longest a bot spends walking to one cell on the way out, in ticks. */
+    private static final int CLIMB_STEP_TICKS = 20;
+
+    /**
+     * What the ground around the bot allows.
+     *
+     * @param confined nowhere to walk to that is either higher or more than a few blocks away:
+     *                 a hole, whatever its shape
+     * @param climbTo  the first cell on the walk to higher ground, when the bot should take it
+     */
+    private record Survey(boolean confined, BlockPos climbTo) {}
+
+    /**
+     * Walks the ground around the bot the way a player could - on the level, up single steps with
+     * headroom, down drops of up to three - and reports what it found.
+     *
+     * <p>Looking only at the four blocks around the bot was not enough. Half way through cutting a
+     * staircase there is always an opening beside the bot: the pocket it just dug, too low to stand
+     * in, or the shaft it just climbed out of. Each looked like a way out, the bot stepped into it,
+     * and went back and forth between the two for the rest of the fight. A hole is a place you
+     * cannot walk out of, and the only way to know that is to try walking.</p>
+     */
+    private static Survey survey(ServerPlayer bot) {
+        Level world = bot.level();
+        BlockPos start = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
+        // Out in the open there is nothing to find, and this runs for every bot with a target.
+        // Two walls is the least a hole or a trench has; anything less is not worth the walk.
+        int walls = walls(world, start);
+        if (walls < 2) return new Survey(false, null);
+        Map<BlockPos, BlockPos> parent = new HashMap<>();
+        java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+        parent.put(start, start);
+        queue.add(start);
+
+        BlockPos bestHigher = null;
+        double bestScore = Double.MAX_VALUE;
+        boolean wide = false;
+        Vec3 goal = goalOf(bot.getName().getString());
+
+        while (!queue.isEmpty() && parent.size() < SURVEY_LIMIT) {
+            BlockPos at = queue.poll();
+            if (Math.abs(at.getX() - start.getX()) >= 3 || Math.abs(at.getZ() - start.getZ()) >= 3) {
+                wide = true;
+            }
+            if (at.getY() > start.getY()) {
+                double score = goal == null ? 0 : Vec3.atCenterOf(at).distanceToSqr(goal);
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestHigher = at;
+                }
+            }
+            for (Direction dir : Direction.Plane.HORIZONTAL) {
+                BlockPos next = stepFrom(world, at, dir);
+                if (next == null || parent.containsKey(next)) continue;
+                if (Math.abs(next.getX() - start.getX()) > SURVEY_RADIUS
+                    || Math.abs(next.getZ() - start.getZ()) > SURVEY_RADIUS
+                    || Math.abs(next.getY() - start.getY()) > SURVEY_RADIUS) continue;
+                parent.put(next, at);
+                queue.add(next);
             }
         }
+
+        // Walls on three sides as well. A bot on top of a tall pillar cannot walk anywhere either,
+        // but it is not in a hole, and digging or towering is the wrong answer up there.
+        boolean confined = !wide && bestHigher == null && walls >= 3;
+
+        // Worth walking to higher ground only when the goal is up there and the bot is down in
+        // something - walls round it - rather than out in the open, where the ordinary movement
+        // already copes with a slope.
+        BlockPos climbTo = null;
+        if (bestHigher != null && goal != null && goal.y - bot.getY() >= 1.0) {
+            BlockPos step = bestHigher;
+            while (!parent.get(step).equals(start)) step = parent.get(step);
+            climbTo = step;
+        }
+        return new Survey(confined, climbTo);
+    }
+
+    /** Where a player stood at {@code at} ends up walking one block towards {@code dir}, or null. */
+    private static BlockPos stepFrom(Level world, BlockPos at, Direction dir) {
+        BlockPos next = at.relative(dir);
+        if (!blocks(world, next)) {
+            if (blocks(world, next.above())) return null;          // no room for a head
+            for (int down = 0; down <= 3; down++) {
+                if (blocks(world, next.below(down + 1))) return next.below(down);
+            }
+            return null;                                           // a fall that hurts
+        }
+        // A step up: room on top of it for the body, and room to jump from here.
+        if (!blocks(world, next.above()) && !blocks(world, next.above(2))
+            && !blocks(world, at.above(2))) {
+            return next.above();
+        }
+        return null;
+    }
+
+    /** How many sides of this cell are walls a player could not walk or step through. */
+    private static int walls(Level world, BlockPos feet) {
+        int walls = 0;
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos side = feet.relative(dir);
+            if (blocks(world, side) && blocks(world, side.above())) walls++;
+        }
+        return walls;
+    }
+
+    /**
+     * Walks to the next cell on the way up and out, hopping when it is a step up.
+     *
+     * <p>What a player does half way out of a hole: step up onto whichever side is open, even when
+     * it is not the side their target is on, and carry on from there.</p>
+     */
+    private static boolean climbOut(ServerPlayer bot, State st, BotProfile profile,
+                                    MinecraftServer server) {
+        if (st.climbTo == null) return false;
+        st.climbTicks++;
+        Vec3 centre = Vec3.atBottomCenterOf(st.climbTo);
+        double dx = centre.x - bot.getX();
+        double dz = centre.z - bot.getZ();
+        boolean arrived = bot.onGround() && Math.hypot(dx, dz) < 0.35
+            && bot.getY() >= st.climbTo.getY() - 0.1;
+        if (arrived || st.climbTicks > CLIMB_STEP_TICKS) {
+            st.climbTo = null;
+            return false;
+        }
+        AimController.lookAtPos(bot, centre.add(0, 1.5, 0), profile, false);
+        if (bot.onGround() && st.climbTo.getY() > bot.getY() + 0.5) BotActions.jump(bot, server);
+        double len = Math.max(0.1, Math.hypot(dx, dz));
+        bot.setSprinting(false);
+        Vec3 v = bot.getDeltaMovement();
+        double speed = Math.min(0.12, len * 0.3);
+        bot.setDeltaMovement(dx / len * speed, v.y, dz / len * speed);
         return true;
     }
+
+    /** Where the bot is trying to get to: its target, or the next point on its route. */
+    private static Vec3 goalOf(String name) {
+        Entity target = BotCombat.getTarget(name);
+        if (target != null && target.isAlive()) return target.position();
+        return BotPath.getNextPoint(name);
+    }
+
+
+
 
     /** True when a cell would stop the bot walking into it. */
     private static boolean blocks(Level world, BlockPos pos) {

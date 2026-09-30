@@ -38,6 +38,9 @@ public final class Bridger {
 
     private static final Map<String, State> STATES = new HashMap<>();
 
+    /** Within this of the target a bot fights rather than builds towards it. */
+    private static final double GAP_MELEE_RANGE = 2.5;
+
     /** How far the bot's centre may hang past the edge while lining up a bridging placement. */
     private static final double MAX_OVERHANG = 0.28;
 
@@ -53,6 +56,10 @@ public final class Bridger {
         public boolean latched;
         /** Ticks spent stepping onto the block just laid down while bridging a gap. */
         public int gapCooldown;
+        /** Height the bot's feet were at the last time it stood on something. */
+        public double groundY = Double.NaN;
+        /** Game time gap bridging last had hold of the bot. */
+        public long lastGapTick = Long.MIN_VALUE / 2;
     }
 
     public static State state(String botName) {
@@ -63,8 +70,14 @@ public final class Bridger {
         STATES.remove(scriptify.bots.utils.Names.key(botName));
     }
 
-    /** Height difference at which walking is hopeless and building is worth it. */
-    private static final double CLIMB_TRIGGER = 2.5;
+    /**
+     * Height difference at which walking is hopeless and building is worth it: two blocks, which
+     * nobody can step or jump up. Measured from where the bot is standing - see
+     * {@link #heightToClimb}.
+     */
+    private static final double CLIMB_TRIGGER = 1.9;
+    /** Close enough to level to stop towering: one block is a step up. */
+    private static final double CLIMB_DONE = 1.5;
     /** How close counts as being at the foot of the wall. */
     private static final double CLIMB_APPROACH = 3.5;
     /** Beyond this the bot walks closer before it considers building. */
@@ -83,20 +96,29 @@ public final class Bridger {
     public static boolean shouldEngage(ServerPlayer bot, Entity target, boolean pathBlocked) {
         if (target == null) return false;
 
-        double dy = target.getY() - bot.getY();
         State st = state(bot.getName().getString());
+        double dy = heightToClimb(bot, target, st);
 
         // A climb, once started, runs until it is level with the target. Re-deciding every
         // tick let the trigger flicker off mid-hop - control went back to the combat code,
         // which promptly walked the bot off the pillar it was standing on.
         if (st.latched) {
-            if (dy >= 1.5) return true;
+            // Finished only once it is standing on the result. Handing back mid-hop gave the
+            // combat code a bot in the air with a run-up, and it carried on straight off the top
+            // of the pillar it had just built.
+            if (dy >= CLIMB_DONE || !bot.onGround()) return true;
             st.latched = false;
             st.placedThisClimb = 0;
             return false;
         }
 
         if (dy < CLIMB_TRIGGER) return false;
+        // Nothing to build with: nothing to commit to. Latching anyway left the climb claiming a
+        // bot that could only stand there.
+        if (findBuildingBlock(bot) < 0) return false;
+        // Somebody jumping is not somebody up a wall. Only a climb that big on its own counts
+        // while they are in the air.
+        if (!target.onGround() && dy < 2.5) return false;
 
         double horizontal = Math.hypot(target.getX() - bot.getX(), target.getZ() - bot.getZ());
         if (horizontal > CLIMB_MAX_RANGE) return false;   // too far off; walk closer first
@@ -114,6 +136,21 @@ public final class Bridger {
             st.placedThisClimb = 0;
         }
         return start;
+    }
+
+    /**
+     * How far above the bot the target stands, measured from the block under the bot's feet.
+     *
+     * <p>Not from where the bot is this instant. Towering is a string of hops, and at the top of
+     * each one the bot is a block and a quarter higher than the pillar it is building - so two
+     * blocks short of a ledge read as "nearly level", the climb stopped, and the bot was left on
+     * a pillar two blocks under the person it was climbing to.</p>
+     */
+    private static double heightToClimb(ServerPlayer bot, Entity target, State st) {
+        if (bot.onGround() || Double.isNaN(st.groundY)) {
+            st.groundY = bot.getY();
+        }
+        return target.getY() - st.groundY;
     }
 
     /**
@@ -153,8 +190,11 @@ public final class Bridger {
         dx /= length;
         dz /= length;
 
+        // Right in front only. Looking two blocks out, a bot walking past the side of a staircase
+        // saw the second step - two high from where it stood - as a wall, and towered up beside a
+        // flight of stairs it could have walked up.
         Level world = bot.level();
-        for (double step = 0.8; step <= 2.0; step += 0.6) {
+        for (double step = 0.6; step <= 1.0; step += 0.4) {
             BlockPos ahead = BlockPos.containing(
                 bot.getX() + dx * step, bot.getY() + 1.0, bot.getZ() + dz * step);
             if (!world.getBlockState(ahead).getCollisionShape(world, ahead).isEmpty()) {
@@ -191,8 +231,15 @@ public final class Bridger {
             return false;
         }
 
-        double dy = target.getY() - bot.getY();
-        if (dy < 1.5 || st.placedThisClimb > MAX_PILLAR) {
+        double dy = heightToClimb(bot, target, st);
+        if ((dy < CLIMB_DONE || st.placedThisClimb > MAX_PILLAR) && !bot.onGround()) {
+            // Up there: come down on the pillar before handing the bot back.
+            bot.setSprinting(false);
+            Vec3 v = bot.getDeltaMovement();
+            bot.setDeltaMovement(v.x * 0.2, v.y, v.z * 0.2);
+            return true;
+        }
+        if (dy < CLIMB_DONE || st.placedThisClimb > MAX_PILLAR) {
             // Level with them, or the tower is getting silly. Back to fighting.
             st.active = false;
             st.latched = false;
@@ -339,15 +386,34 @@ public final class Bridger {
         // Already plummeting: too late to build, just ride it out.
         if (bot.getDeltaMovement().y < -0.35) return false;
 
+        State st = state(bot.getName().getString());
+        // Towering up is its own job. At the top of each hop the bot's feet are over a block of
+        // air - the cell it is about to fill - so the drop test below saw a gap on every hop and
+        // took the tick away from the climb, which then never got to place anything. One block,
+        // and a bot bouncing on it for the rest of the fight.
+        if (st.latched) return false;
+        // Airborne, the question is where the bot will land, not what is under it this instant.
+        // Only carry on if a crossing was already under way.
+        if (!bot.onGround() && bot.level().getGameTime() - st.lastGapTick > 4) return false;
+
         Vec3 step = towards(bot, target);
         if (step == null) return false;
+
+        // Close enough to hit: fight. And never look past the target - the drop behind somebody
+        // stood on a pillar is not a gap between you and them, and treating it as one had the bot
+        // stood next to its target trying to bridge instead of swinging.
+        double flat = Math.hypot(target.getX() - bot.getX(), target.getZ() - bot.getZ());
+        if (bot.distanceTo(target) <= GAP_MELEE_RANGE) return false;
+        double farthest = Math.min(3.0, flat - 0.5);
 
         Level world = bot.level();
 
         // Look a stride and a half ahead, not one block. At walking speed the edge arrives in
         // two ticks, and if the bot happens to be mid-hop on the tick it would have noticed,
-        // it sails straight into the hole instead of stopping at it.
-        for (double reach = 1.0; reach <= 3.0; reach += 0.5) {
+        // it sails straight into the hole instead of stopping at it. From half a block, not one:
+        // a bot crouched out over the lip has the last gap right under its toes, and a probe
+        // starting a block out stepped over it - the bridge stopped one block short every time.
+        for (double reach = 0.5; reach <= farthest; reach += 0.5) {
             BlockPos ahead = BlockPos.containing(
                 bot.getX() + step.x * reach, bot.getY() + 0.05, bot.getZ() + step.z * reach);
             if (BlockPlacer.isReplaceable(world, ahead)
@@ -376,6 +442,8 @@ public final class Bridger {
 
         int blockSlot = findBuildingBlock(bot);
         if (blockSlot < 0) return false;
+
+        st.lastGapTick = bot.level().getGameTime();
 
         // Crouch for the whole manoeuvre. This is not decoration: sneaking is what stops a
         // player walking off the ledge, and it is what lets the bot stand with its body out
@@ -510,15 +578,29 @@ public final class Bridger {
         BlockPos under = BlockPlacer.groundBelow(bot);
         if (isSolid(world, under)) return under;
 
-        // Overhanging: the block holding the bot up is the one behind its centre.
-        for (double back = 0.2; back <= 0.45; back += 0.125) {
-            BlockPos behind = BlockPos.containing(
-                bot.getX() - dir.getStepX() * back,
-                bot.getY() - 0.2,
-                bot.getZ() - dir.getStepZ() * back);
-            if (isSolid(world, behind)) return behind;
+        // Overhanging, or standing on a corner: the block holding the bot up is one of the cells
+        // under its hitbox rather than the one under its centre. Of those, the one furthest along
+        // the way it is heading, since that is the one whose side face extends the bridge.
+        // Checking only straight back along the travel axis missed a bot perched on the corner of
+        // a platform with its centre over air on the other axis, which never started a diagonal
+        // crossing at all.
+        double y = bot.getY() - 0.2;
+        BlockPos best = null;
+        double bestAlong = Double.NEGATIVE_INFINITY;
+        // A hair wider than the hitbox's half width of 0.3: a crouching player at the lip is held
+        // by exactly its edge, touching the block it stands on and nothing more.
+        for (double ox = -0.32; ox <= 0.33; ox += 0.32) {
+            for (double oz = -0.32; oz <= 0.33; oz += 0.32) {
+                BlockPos cell = BlockPos.containing(bot.getX() + ox, y, bot.getZ() + oz);
+                if (!isSolid(world, cell)) continue;
+                double along = cell.getX() * dir.getStepX() + cell.getZ() * dir.getStepZ();
+                if (along > bestAlong) {
+                    bestAlong = along;
+                    best = cell;
+                }
+            }
         }
-        return null;
+        return best;
     }
 
     private static boolean isSolid(Level world, BlockPos pos) {

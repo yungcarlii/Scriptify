@@ -57,6 +57,14 @@ public class BotNavigation {
         public int wtapTicks = 0;
         public int knockbackTicks = 0;
         public int bhopCooldown = 0;
+
+        // Edge safety: the straight line to the goal, before sidesteps and strafing bend it, and
+        // whether the ground either side of the bot falls away (a bridge, a ledge).
+        public double goalDirX = 0;
+        public double goalDirZ = 0;
+        public boolean narrowFooting = false;
+        /** Last tick's movement was refused at an edge: standing still there is not being stuck. */
+        public boolean edgeHeld = false;
     }
 
     public static NavigationState getState(String botName) {
@@ -324,6 +332,13 @@ public class BotNavigation {
             dx /= horizontalDist;
             dz /= horizontalDist;
         }
+        state.goalDirX = dx;
+        state.goalDirZ = dz;
+        // On a one-wide bridge or a ledge, the ground falls away to one side or the other. A
+        // player there walks: no strafing and no hopping, both of which go sideways.
+        state.narrowFooting = bot.onGround()
+            && (isDangerousDrop(world, botPos.x - dz * 0.9, botPos.y, botPos.z + dx * 0.9)
+                || isDangerousDrop(world, botPos.x + dz * 0.9, botPos.y, botPos.z - dx * 0.9));
 
         // Sidestep when stuck against geometry.
         if (state.avoidTicks > 0) {
@@ -332,7 +347,10 @@ public class BotNavigation {
             else { dx = dz; dz = -tmp; }
         }
 
-        if (combat) {
+        if (combat && state.narrowFooting) {
+            strafeIntensity = 0;
+        }
+        if (combat && strafeIntensity > 0) {
             updateStrafe(state, profile, strafeIntensity);
             double blend = 0.35 + strafeIntensity * 0.45;
             double tmp = dx;
@@ -353,6 +371,20 @@ public class BotNavigation {
             || isClimbable(world, BlockPos.containing(botPos.x, botPos.y + 1, botPos.z));
         BlockPos groundFront = BlockPos.containing(botPos.x + dx * 1.3, botPos.y - 1, botPos.z + dz * 1.3);
         boolean holeAhead = !isBlockSolid(world, groundFront) && !isBlockSolid(world, groundFront.below());
+        // A hole is only worth leaping if there is somewhere to land on the far side. Jumping at
+        // one that turns out to be the edge of a cliff, or of a bridge over the void, is not a
+        // thing a player does - and it was exactly how bots chasing someone across a gap died.
+        if (holeAhead && isDangerousDrop(world, groundFront.getX() + 0.5, botPos.y, groundFront.getZ() + 0.5)
+            && !safeLanding(world, botPos, dx, dz)) {
+            holeAhead = false;
+        }
+        // A fall this close ahead: no hopping towards it either. A bunny hop covers two or three
+        // blocks and cannot be steered once it has left the ground.
+        // Stricter than the edge guard: any step down at all. Landing from a hop a block lower,
+        // still carrying the run, is how a bot that sprint-hopped off its own pillar went on over
+        // the edge of the platform below.
+        boolean edgeNear = dropWithin(world, botPos, dx, dz, 3.0)
+            || stepDownWithin(world, botPos, dx, dz, 3.0);
 
         BotSettings settings = BotSettings.get();
         String botName = bot.getName().getString();
@@ -390,6 +422,7 @@ public class BotNavigation {
         // Bunny hop, on a per-bot irregular cadence instead of every landing.
         boolean useBhop = (pathWalkType != null) ? pathWalkType.equals("bhop") : settings.isBhopEnabled();
         if (useBhop && speed >= 1.0 && bot.onGround() && !canStepUp && !isWall && !holeAhead
+            && !edgeNear && !state.narrowFooting
             && state.jumpCooldown <= 0 && state.bhopCooldown <= 0) {
             bot.jumpFromGround();
             state.jumpCooldown = 10;
@@ -456,6 +489,43 @@ public class BotNavigation {
         // Sprint only when genuinely committed forwards, and never during a w-tap.
         boolean sprint = !walkOnly && !stopSprint && forward > 0.72 && horizontalDist > 1.2;
 
+        // Where that input actually takes the bot, strafe included. Strafing is sideways, and
+        // sideways along the edge of a bridge or a cliff is straight off it.
+        double wx = -sin * forward + cos * sideways;
+        double wz = cos * forward + sin * sideways;
+        Vec3 here = new Vec3(bot.getX(), bot.getY(), bot.getZ());
+        Level world = bot.level();
+        // Further ahead the faster it is going: a sprint covers a block in four ticks.
+        Vec3 v0 = bot.getDeltaMovement();
+        double lookahead = EDGE_LOOKAHEAD + Math.min(1.5, Math.hypot(v0.x, v0.z) * 4.0);
+        state.edgeHeld = false;
+        if (dropWithin(world, here, wx, wz, lookahead)) {
+            // Keep the part of the move that stays on solid ground: first try without the strafe,
+            // then give up on moving at all. A player at an edge stops; they do not step off.
+            // Then the plain line to the goal, before any flanking or sidestep bent it.
+            if (!dropWithin(world, here, dx, dz, lookahead)) {
+                forward = -dx * sin + dz * cos;
+                sideways = dx * cos + dz * sin;
+            } else if (!dropWithin(world, here, state.goalDirX, state.goalDirZ, lookahead)) {
+                dx = state.goalDirX;
+                dz = state.goalDirZ;
+                forward = -dx * sin + dz * cos;
+                sideways = dx * cos + dz * sin;
+                sprint = false;
+            } else {
+                state.edgeHeld = true;
+                bot.setSprinting(false);
+                bot.zza = 0;
+                bot.xxa = 0;
+                if (bot.onGround()) {
+                    // Shed the run-up too, or momentum carries the bot over regardless.
+                    Vec3 v = bot.getDeltaMovement();
+                    bot.setDeltaMovement(v.x * 0.3, v.y, v.z * 0.3);
+                }
+                return;
+            }
+        }
+
         bot.setSprinting(sprint);
         bot.zza = (float) (forward * (stopSprint ? 0.4 : 1.0));
         bot.xxa = (float) sideways;
@@ -497,7 +567,9 @@ public class BotNavigation {
             return;
         }
         double moved = currentPos.distanceTo(state.lastPosition);
-        if (moved < 0.05 && bot.onGround()) {
+        // Held at an edge on purpose is not stuck, and the cure for stuck - a jump and a sidestep -
+        // is the last thing to do at the edge of a drop.
+        if (moved < 0.05 && bot.onGround() && !state.edgeHeld) {
             state.stuckTicks++;
             if (state.stuckTicks > 10) {
                 if (state.avoidTicks <= 0) {
@@ -516,6 +588,90 @@ public class BotNavigation {
         } else {
             state.stuckTicks = 0;
         }
+    }
+
+    /** A fall of more than this many blocks hurts, so it counts as an edge rather than a step. */
+    private static final int SAFE_DROP = 3;
+
+    /** How far ahead of its feet a moving bot checks for an edge, in blocks. */
+    private static final double EDGE_LOOKAHEAD = 1.2;
+
+    /**
+     * Whether stepping into the cell at this point would mean a fall that hurts.
+     *
+     * <p>Judged by collision rather than by {@link #isBlockSolid}, which asks whether a block
+     * conducts redstone - glass, leaves and slabs do not, and all of them are perfectly good to
+     * land on. Water breaks any fall, so a drop into it is not an edge.</p>
+     */
+    public static boolean isDangerousDrop(Level world, double x, double y, double z) {
+        BlockPos cell = BlockPos.containing(x, y + 0.05, z);
+        if (collides(world, cell)) return false;               // a wall, not a drop
+        for (int down = 1; down <= SAFE_DROP + 1; down++) {
+            BlockPos below = cell.below(down);
+            if (collides(world, below) || !world.getFluidState(below).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    /** Whether a hurtful drop lies along this heading within {@code reach} blocks. */
+    public static boolean dropWithin(Level world, Vec3 from, double dx, double dz, double reach) {
+        double length = Math.hypot(dx, dz);
+        if (length < 1.0E-3) return false;
+        dx /= length;
+        dz /= length;
+        for (double d = 0.45; d <= reach + 1.0E-6; d += 0.35) {
+            if (!supportedAt(world, from.x + dx * d, from.y, from.z + dz * d)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a player stood with their centre here would have ground under them.
+     *
+     * <p>A player is held up by anything under any part of their feet, not just under their
+     * centre. Asking about the centre alone refused the step across two blocks that meet only at
+     * a corner - which is how a diagonal bridge meets the platform it was built to reach - so the
+     * bot built all the way over and then stood at the last block refusing to walk off it.</p>
+     */
+    private static boolean supportedAt(Level world, double x, double y, double z) {
+        for (double ox = -0.25; ox <= 0.26; ox += 0.5) {
+            for (double oz = -0.25; oz <= 0.26; oz += 0.5) {
+                if (!isDangerousDrop(world, x + ox, y, z + oz)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the ground falls away at all - even one block - along this heading within reach. */
+    private static boolean stepDownWithin(Level world, Vec3 from, double dx, double dz, double reach) {
+        double length = Math.hypot(dx, dz);
+        if (length < 1.0E-3) return false;
+        dx /= length;
+        dz /= length;
+        for (double d = 0.45; d <= reach + 1.0E-6; d += 0.35) {
+            BlockPos cell = BlockPos.containing(from.x + dx * d, from.y + 0.05, from.z + dz * d);
+            if (!collides(world, cell) && !collides(world, cell.below())
+                && world.getFluidState(cell.below()).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a running jump along this heading would come down on something. */
+    private static boolean safeLanding(Level world, Vec3 from, double dx, double dz) {
+        for (double d = 2.2; d <= 3.4; d += 0.4) {
+            BlockPos landing = BlockPos.containing(from.x + dx * d, from.y - 0.5, from.z + dz * d);
+            if (collides(world, landing) && !collides(world, landing.above())
+                && !collides(world, landing.above(2))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean collides(Level world, BlockPos pos) {
+        return !world.getBlockState(pos).getCollisionShape(world, pos).isEmpty();
     }
 
     private static boolean isBlockSolid(Level world, BlockPos pos) {
