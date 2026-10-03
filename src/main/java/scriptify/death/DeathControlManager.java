@@ -157,9 +157,6 @@ public final class DeathControlManager {
 		// client out of the spectator camera and back into a normal body.
 		PlayerRefresh.refresh(player);
 		save();
-		this.context.server().getPlayerList().broadcastSystemMessage(
-			Component.translatable("multiplayer.player.joined", player.getDisplayName())
-				.withStyle(ChatFormatting.YELLOW), false);
 		return true;
 	}
 

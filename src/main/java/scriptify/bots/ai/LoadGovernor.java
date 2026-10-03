@@ -126,8 +126,28 @@ public final class LoadGovernor {
         thinkingThisTick = 0;
         smoothed = server.getCurrentSmoothedTickTime();
 
+        // Real time between ticks, each capped at three ticks' worth. The server's own figure is a
+        // hundred-tick average, so one five-second /fill kept it "lagging" for five seconds after,
+        // and boosting through that sent bots lurching off at double speed. Capped, a hitch is a
+        // blip; only a run of slow ticks adds up to slow motion.
+        float perTick = Math.max(1.0f, server.tickRateManager().millisecondsPerTick());
+        long nowNs = System.nanoTime();
+        if (lastTickNs != 0) {
+            windowMs += Math.min((nowNs - lastTickNs) / 1.0e6, perTick * 3.0);
+            windowTicks++;
+        }
+        lastTickNs = nowNs;
+
         if (serverTick - lastAdjust < ADJUST_INTERVAL) return;
         lastAdjust = serverTick;
+
+        double behind = windowTicks == 0 ? 1.0 : windowMs / (windowTicks * perTick);
+        windowMs = 0;
+        windowTicks = 0;
+        // And it has to last: the least of the last three seconds.
+        recentBehind[recentIndex++ % recentBehind.length] = behind;
+        double sustained = Math.min(recentBehind[0], Math.min(recentBehind[1], recentBehind[2]));
+        lagBoost = sustained < 1.05 ? 1.0 : Math.min(MAX_LAG_BOOST, sustained);
 
         if (smoothed > TARGET_TICK_MS) {
             // One step at a time. Jumping straight to the widest stride the moment a tick runs
@@ -136,6 +156,53 @@ public final class LoadGovernor {
             stride = Math.min(MAX_STRIDE, stride + 1);
         } else if (smoothed < RELAX_TICK_MS && stride > 1) {
             stride--;
+        }
+    }
+
+    // ===================== lag compensation =====================
+
+    /**
+     * Most a lagging server's bots are sped up by: enough to cover a server at ten ticks a second.
+     */
+    private static final double MAX_LAG_BOOST = 2.0;
+
+    private static final net.minecraft.resources.Identifier LAG_BOOST_ID =
+        net.minecraft.resources.Identifier.fromNamespaceAndPath("scriptify", "lag_boost");
+
+    /** How many ticks' worth of real time each tick is currently taking; 1 when on time. */
+    private static double lagBoost = 1.0;
+    private static final double[] recentBehind = new double[3];
+    private static long lastTickNs = 0;
+    private static double windowMs = 0;
+    private static int windowTicks = 0;
+    private static int recentIndex = 0;
+
+    public static double lagBoost() {
+        return lagBoost;
+    }
+
+    /**
+     * Speeds a bot's walking up by however far behind the server is running.
+     *
+     * <p>A tick that takes longer than fifty milliseconds slows the whole server world down, and
+     * with it every bot - while the real players, whose movement their own clients run, carry on
+     * at full speed. With a big army the bots visibly trudged next to the people they were
+     * fighting. Scaling their speed by the lag makes them cover the same ground per real second
+     * they would on a server keeping up. Walking and sprinting only: jumps and falls still run on
+     * the server's clock.</p>
+     */
+    public static void applyLagBoost(ServerPlayer bot) {
+        var speed = bot.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
+        if (speed == null) return;
+        double want = lagBoost - 1.0;
+        var current = speed.getModifier(LAG_BOOST_ID);
+        double have = current == null ? 0.0 : current.amount();
+        if (Math.abs(have - want) < 0.05) return;
+        speed.removeModifier(LAG_BOOST_ID);
+        if (want > 0) {
+            speed.addTransientModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(
+                LAG_BOOST_ID, want,
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
         }
     }
 
@@ -196,6 +263,7 @@ public final class LoadGovernor {
         BANDS.clear();
         stride = 1;
         lastAdjust = 0;
+        lagBoost = 1.0;
     }
 
     // ===================== diagnostics =====================

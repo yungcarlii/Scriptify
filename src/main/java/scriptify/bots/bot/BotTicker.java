@@ -103,6 +103,7 @@ public class BotTicker {
             if (!BotManager.isBot(botName)) continue;
             botsSeen++;
             BotActions.abortStrayMining(bot);
+            LoadGovernor.applyLagBoost(bot);
 
             BotProfile profile = BotProfile.of(botName);
 
@@ -238,6 +239,50 @@ public class BotTicker {
         return Math.abs(botPos.y - point.y) <= POINT_VERTICAL_REACH;
     }
 
+    /** How far from a waypoint a bot's own spot for it may be, so a crowd on one route spreads out. */
+    private static final double WANDER = 4.5;
+
+    /** Ticks a bot gets to reach its own spot before it settles for the waypoint itself. */
+    private static final int WANDER_PATIENCE = 300;
+
+    /**
+     * Where this bot actually walks for the current waypoint: its own spot within a few blocks of it.
+     *
+     * <p>Every bot heading for the exact same points walked the exact same line, single file. Each one
+     * now picks its own spot near every point - fixed per bot and point, so it does not jitter - and
+     * the crowd moves the same way along a band rather than a thread. The spot is only used when the
+     * bot could walk straight from the waypoint to it on solid, open ground, so it never sends a bot
+     * into a wall, a hole or across a river the route was drawn to avoid; and a bot that still has
+     * not reached it after a while goes for the waypoint itself.</p>
+     */
+    private static Vec3 wanderTarget(ServerPlayer bot, String botName, Vec3 point) {
+        BotPath.PathFollower follower = BotPath.getFollower(botName);
+        if (follower == null) return point;
+        // A one-point route is a post to stand on, not a route to walk.
+        BotPath.PathData route = BotPath.getPath(follower.pathName);
+        if (route == null || route.points.size() < 2) return point;
+        if (follower.wanderIndex != follower.currentPoint) {
+            follower.wanderIndex = follower.currentPoint;
+            follower.wanderTicks = 0;
+            follower.wanderPoint = null;
+            // Splittable, not Random: Random's first number barely moves between neighbouring seeds,
+            // so Walker1 and Walker2 picked nearly the same spot.
+            var rng = new java.util.SplittableRandom(botName.hashCode() * 31L + follower.currentPoint);
+            double angle = rng.nextDouble() * Math.PI * 2;
+            double radius = WANDER * Math.sqrt(rng.nextDouble());
+            // Shrink toward the waypoint until the spot is somewhere it can safely walk to.
+            for (double r = radius; r > 0.5 && follower.wanderPoint == null; r *= 0.5) {
+                Vec3 spot = new Vec3(point.x + Math.cos(angle) * r, point.y, point.z + Math.sin(angle) * r);
+                if (BotNavigation.straightWalkable(bot.level(), point, spot)) follower.wanderPoint = spot;
+            }
+        }
+        if (follower.wanderPoint == null) return point;
+        // Standing on its spot is not being stuck: at the end of a route it waits there for good.
+        if (reachedPoint(bot.position(), follower.wanderPoint)) follower.wanderTicks = 0;
+        if (++follower.wanderTicks > WANDER_PATIENCE) return point;
+        return follower.wanderPoint;
+    }
+
     private static void tickPathFollowing(ServerPlayer bot, String botName, BotProfile profile) {
         boolean shouldAttack = BotPath.shouldAttack(botName);
         var target = BotCombat.getTarget(botName);
@@ -268,6 +313,7 @@ public class BotTicker {
 
         Vec3 next = BotPath.getNextPoint(botName);
         if (next == null) return;
+        next = wanderTarget(bot, botName, next);
         if (reachedPoint(botPos, next)) {
             BotPath.advanceToNextPoint(botName);
         } else {

@@ -69,6 +69,8 @@ public class BotNavigation {
         public boolean narrowFooting = false;
         /** Last tick's movement was refused at an edge: standing still there is not being stuck. */
         public boolean edgeHeld = false;
+        /** Game tick on which the bot last steered along a computed route. */
+        public long routedTick = -1;
     }
 
     public static NavigationState getState(String botName) {
@@ -128,7 +130,10 @@ public class BotNavigation {
 
         if (settings.isPathfindingEnabled()) {
             Vec3 waypoint = followPath(bot, state, targetPos, settings);
-            if (waypoint != null) immediate = waypoint;
+            if (waypoint != null) {
+                immediate = waypoint;
+                state.routedTick = bot.level().getGameTime();
+            }
         }
 
         steer(bot, immediate, speed, state, false, null);
@@ -292,7 +297,16 @@ public class BotNavigation {
 
         Vec3 waypoint = state.path.get(Math.min(state.pathIndex, state.path.size() - 1));
         double dist = botPos.distanceTo(waypoint);
-        if (dist < 1.25) {
+        // Close enough to move on - but only early when the next one is a clear walk from here.
+        // Ticking off the waypoint in a one-wide gap from a block away sent the bot diagonally into
+        // the gap's corner, and it slid up and down the wall beside the gap for good.
+        // Level ground only: a step up or down is never a "straight walk", and holding out for the
+        // middle of every stair had bots bouncing on a hillside.
+        boolean onIt = Math.hypot(waypoint.x - botPos.x, waypoint.z - botPos.z) < 0.6;
+        Vec3 after = state.pathIndex + 1 < state.path.size() ? state.path.get(state.pathIndex + 1) : null;
+        boolean blockedAhead = after != null && Math.abs(after.y - waypoint.y) <= 0.6
+            && !straightWalkable(bot.level(), botPos, after);
+        if (dist < 1.25 && (onIt || !blockedAhead)) {
             state.pathIndex++;
             if (state.pathIndex >= state.path.size()) {
                 state.path = List.of();
@@ -320,8 +334,10 @@ public class BotNavigation {
         double ux = dx / length;
         double uz = dz / length;
         double y = from.y + 0.1;
-        for (double t = 0.4; t < length; t += 0.5) {
-            for (double side = -0.3; side <= 0.31; side += 0.3) {
+        // A bit wider than the body and close-spaced: sampling at the body's exact edge every half
+        // block let a diagonal line clip the corner of a one-wide gap, and the bot stuck on it.
+        for (double t = 0.3; t < length; t += 0.3) {
+            for (double side = -0.4; side <= 0.41; side += 0.4) {
                 double x = from.x + ux * t - uz * side;
                 double z = from.z + uz * t + ux * side;
                 BlockPos feet = BlockPos.containing(x, y, z);
@@ -459,7 +475,9 @@ public class BotNavigation {
                 bot.jumpFromGround();
                 bot.push(dx * 0.35, 0.05, dz * 0.35);
                 state.jumpCooldown = 12;
-            } else if (isWall && state.avoidTicks <= 0) {
+            // Not while on a route: the route already goes round the wall, and a blind sidestep of
+            // a second or more carried bots yards along it, away from the gap they were heading for.
+            } else if (isWall && state.avoidTicks <= 0 && state.routedTick != world.getGameTime()) {
                 state.avoidDirection = (Math.random() > 0.5) ? 1 : -1;
                 state.avoidTicks = 25;
                 bot.jumpFromGround();

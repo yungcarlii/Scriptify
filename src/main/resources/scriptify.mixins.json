@@ -19,6 +19,7 @@
 		"ServerPlayerGameModeMixin",
 		"ServerPlayerPermissionsMixin",
 		"ServerPlayerTabListMixin",
+		"StagedLeaveMixin",
 		"TrackedEntityMixin"
 	],
 	"injectors": {

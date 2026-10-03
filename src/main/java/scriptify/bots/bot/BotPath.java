@@ -55,7 +55,11 @@ public class BotPath {
         public boolean combatPath = false;
         /** How far a patrolling bot can spot an enemy from, in blocks. */
         public double sightRange = DEFAULT_SIGHT_RANGE;
-        
+        /** This bot's own spot near the current point (see BotTicker.wanderTarget); not saved. */
+        transient int wanderIndex = -1;
+        transient Vec3 wanderPoint;
+        transient int wanderTicks;
+
         public PathFollower(String pathName) {
             this.pathName = pathName;
         }
