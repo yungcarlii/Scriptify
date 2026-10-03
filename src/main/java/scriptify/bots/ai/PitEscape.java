@@ -348,8 +348,7 @@ public final class PitEscape {
         AimController.lookAtPrecise(bot, aim, profile);
 
         // Stand still while mining, and stop sprinting into the wall.
-        bot.zza = 0;
-        bot.xxa = 0;
+        BotInput.release(bot);
         bot.setSprinting(false);
 
         if (!aimedAt(bot, aim)) return true;

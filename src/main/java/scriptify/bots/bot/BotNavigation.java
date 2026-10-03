@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.Level;
 import scriptify.bots.ai.AimController;
+import scriptify.bots.ai.BotInput;
 import scriptify.bots.ai.BotProfile;
 import scriptify.bots.ai.Pathfinder;
 import scriptify.bots.ai.Rng;
@@ -305,8 +306,7 @@ public class BotNavigation {
         if (isKnockedBack(bot) && state.knockbackTicks < 8) {
             state.knockbackTicks++;
             bot.setSprinting(false);
-            bot.zza = 0;
-            bot.xxa = 0;
+            BotInput.release(bot);
             state.lastPosition = botPos;
             return;
         }
@@ -414,7 +414,7 @@ public class BotNavigation {
         if (onLadder) {
             bot.push(0, 0.12, 0);
             bot.setSprinting(false);
-            bot.zza = 1.0f;
+            BotInput.hold(bot, 1.0f, 0.0f, false, false);
             state.lastPosition = botPos;
             return;
         }
@@ -503,7 +503,10 @@ public class BotNavigation {
         Vec3 v0 = bot.getDeltaMovement();
         double lookahead = EDGE_LOOKAHEAD + Math.min(1.5, Math.hypot(v0.x, v0.z) * 4.0);
         state.edgeHeld = false;
-        if (dropWithin(world, here, wx, wz, lookahead)) {
+        // On the ground only. A drop is something you walk off; in the air everything below is a
+        // "drop", and holding back there left a bot with slow falling hanging motionless instead
+        // of steering toward the fight the way a player drifts on the way down.
+        if (bot.onGround() && dropWithin(world, here, wx, wz, lookahead)) {
             // Keep the part of the move that stays on solid ground: first try without the strafe,
             // then give up on moving at all. A player at an edge stops; they do not step off.
             // Then the plain line to the goal, before any flanking or sidestep bent it.
@@ -519,8 +522,7 @@ public class BotNavigation {
             } else {
                 state.edgeHeld = true;
                 bot.setSprinting(false);
-                bot.zza = 0;
-                bot.xxa = 0;
+                BotInput.release(bot);
                 if (bot.onGround()) {
                     // Shed the run-up too, or momentum carries the bot over regardless.
                     Vec3 v = bot.getDeltaMovement();
@@ -530,14 +532,17 @@ public class BotNavigation {
             }
         }
 
+        // Held as real keys, so the game's own movement rules set the pace: walking, sprinting and
+        // sprint-jumping at exactly a player's speed. This used to be written straight into the
+        // movement fields, which the backend overwrites before physics reads them, with a small
+        // velocity push doing the actual work - and a bot that went everywhere at a push's pace
+        // looked like it was wading. A keyboard has no half-press, so a slower order means walking
+        // instead of sprinting rather than a slow-motion sprint; only a crawl scales the keys down.
+        if (speed < 0.95) sprint = false;
+        double press = speed >= 0.6 ? 1.0 : Math.max(0.3, speed / 0.6);
         bot.setSprinting(sprint);
-        bot.zza = (float) (forward * (stopSprint ? 0.4 : 1.0));
-        bot.xxa = (float) sideways;
-
-        // A small nudge on top, in the same direction as the input rather than against it,
-        // to keep direction changes responsive.
-        double moveForce = bot.onGround() ? 0.06 : 0.02;
-        bot.push(dx * speed * moveForce, 0, dz * speed * moveForce);
+        BotInput.hold(bot, (float) (forward * press * (stopSprint ? 0.4 : 1.0)),
+            (float) (sideways * press), false, sprint);
     }
 
     private static String pathWalkType(String botName) {
@@ -560,6 +565,9 @@ public class BotNavigation {
     }
 
     private static boolean isKnockedBack(ServerPlayer bot) {
+        // Only just after a hit. Speed alone also caught the bot's own sprint-jumps, which peak at
+        // the same pace as a light knockback, and dropped its keys mid-stride every hop.
+        if (bot.hurtTime <= 0) return false;
         Vec3 vel = bot.getDeltaMovement();
         return Math.sqrt(vel.x * vel.x + vel.z * vel.z) > 0.35;
     }
@@ -750,8 +758,8 @@ public class BotNavigation {
         if (dist > 0.5) {
             AimController.lookAtPos(bot, state.wanderTarget, profile, false);
             bot.setSprinting(false);
-            bot.zza = 0.5f;
-            bot.push(dx / dist * 0.03, 0, dz / dist * 0.03);
+            // A stroll: walking, never sprinting, toward wherever it is looking.
+            BotInput.hold(bot, 1.0f, 0.0f, false, false);
 
             Level world = bot.level();
             BlockPos feetPos = BlockPos.containing(botPos.x + dx / dist * 0.5, botPos.y,
@@ -762,8 +770,7 @@ public class BotNavigation {
                 state.jumpCooldown = 10;
             }
         } else {
-            bot.zza = 0;
-            bot.xxa = 0;
+            BotInput.release(bot);
         }
         state.lastPosition = botPos;
     }

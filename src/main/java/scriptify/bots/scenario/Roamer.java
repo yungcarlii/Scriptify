@@ -304,8 +304,7 @@ public final class Roamer {
      * treading water: a scenario bot stood still in a lake would otherwise sink and drown.
      */
     public static void halt(ServerPlayer bot) {
-        bot.zza = 0;
-        bot.xxa = 0;
+        scriptify.bots.ai.BotInput.release(bot);
         bot.setSprinting(false);
         Vec3 v = bot.getDeltaMovement();
         bot.setDeltaMovement(v.x * 0.4, v.y, v.z * 0.4);

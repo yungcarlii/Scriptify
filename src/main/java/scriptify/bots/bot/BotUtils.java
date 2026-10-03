@@ -84,6 +84,13 @@ public class BotUtils {
         /** Ticks before the bucket may be clicked again. */
         public int handClickCooldown = 0;
 
+        /** Heals are not considered again before this tick: a slip, a late reaction. */
+        public long healBlockedUntil = 0;
+        /** Last tick a heal was wanted, to tell a new low-health moment from a continuing one. */
+        public long lastHealWant = -1000;
+        /** When the offhand may next be given a totem, after one has gone. */
+        public long retotemAt = -1;
+
         /** Mirrors the combat shield state so other systems can read it. */
         public boolean isBlocking = false;
     }
@@ -201,7 +208,11 @@ public class BotUtils {
                 // of looking for a way out that is not there.
                 HealPlanner.Plan plan = HealPlanner.plan(bot, profile, target, distance,
                     underPressure, combat.cachedNearbyEnemies, CobwebTactics.isSheltering(botName));
-                if (applyHealPlan(bot, state, profile, settings, plan, server)) return;
+                if (!plan.isNothing() && slipsUp(bot, state, profile, combat, serverTick)) {
+                    // Not this time: noticing late, forgetting, or too busy trading hits.
+                } else if (applyHealPlan(bot, state, profile, settings, plan, server)) {
+                    return;
+                }
             }
         }
 
@@ -564,12 +575,65 @@ public class BotUtils {
     private static void handleAutoTotem(ServerPlayer bot, BotCombat.CombatState combat) {
         if (combat.isUsingShield) return;   // do not fight the shield for the offhand slot
         var inv = bot.getInventory();
-        if (inv.getItem(Inv.OFFHAND).getItem() == Items.TOTEM_OF_UNDYING) return;
-
-        int slot = Inv.findItem(inv, Items.TOTEM_OF_UNDYING);
-        if (slot >= 0) {
-            Inv.swapOffhand(inv, slot);
+        BotState state = getState(bot.getName().getString());
+        if (inv.getItem(Inv.OFFHAND).getItem() == Items.TOTEM_OF_UNDYING) {
+            state.retotemAt = -1;
+            return;
         }
+        int slot = Inv.findItem(inv, Items.TOTEM_OF_UNDYING);
+        if (slot < 0) return;
+
+        // Re-totem the way a player does: open the inventory, find it, drag it across - half a second
+        // for the best, three for the rest, and in the thick of a fight sometimes not until it calms
+        // down. Swapping one in the instant the last popped made a bot that could not be killed
+        // through its totems, which is the one way a stacked player actually dies.
+        long now = bot.level().getGameTime();
+        BotProfile profile = BotProfile.of(bot.getName().getString());
+        if (state.retotemAt < 0) {
+            double skill = profile.skill();
+            boolean busy = System.currentTimeMillis() - combat.lastAttackTime < 2000;
+            int delay = Rng.range(profile.rng(), 10 + (int) ((1 - skill) * 20), 20 + (int) ((1 - skill) * 40));
+            if (busy && profile.rng().nextDouble() < 0.25 + (1 - skill) * 0.25) {
+                delay += Rng.range(profile.rng(), 60, 160);      // too busy to open the inventory
+            }
+            state.retotemAt = now + delay;
+            return;
+        }
+        if (now < state.retotemAt) return;
+        Inv.swapOffhand(inv, slot);
+        state.retotemAt = -1;
+    }
+
+    /**
+     * Whether the bot fails to act on a heal it should take, this time.
+     *
+     * <p>Players do not heal on a timer. They notice they are low a moment late, they forget
+     * altogether when the fight is busy, and while somebody is landing a combo on them they keep
+     * swinging instead of stepping back to eat - which is exactly how a player gets crit out. A bot
+     * that ate at the perfect moment every time could not be, and that was the tell.</p>
+     */
+    private static boolean slipsUp(ServerPlayer bot, BotState state, BotProfile profile,
+                                   BotCombat.CombatState combat, long now) {
+        if (now < state.healBlockedUntil) return true;
+        double skill = profile.skill();
+        var rng = profile.rng();
+        boolean fresh = now - state.lastHealWant > 60;
+        state.lastHealWant = now;
+        if (fresh) {
+            double forget = 0.10 + (1 - skill) * 0.20 + Math.min(0.15, combat.cachedNearbyEnemies * 0.03);
+            if (rng.nextDouble() < forget) {
+                state.healBlockedUntil = now + Rng.range(rng, 40, 100);
+            } else {
+                state.healBlockedUntil = now + Rng.range(rng, 3, 4 + (int) ((1 - skill) * 12));
+            }
+            return true;
+        }
+        boolean comboed = System.currentTimeMillis() - combat.lastAttackTime < 500;
+        if (comboed && rng.nextDouble() < 0.35 - skill * 0.2) {
+            state.healBlockedUntil = now + Rng.range(rng, 5, 15);
+            return true;
+        }
+        return false;
     }
 
     // ===================== cobweb escape =====================

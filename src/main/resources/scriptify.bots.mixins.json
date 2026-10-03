@@ -6,6 +6,7 @@
 	"mixins": [
 		"LivingEntityInputMixin",
 		"PlayerSlotMixin",
+		"ServerPlayerGameModeAccessor",
 		"ServerWaypointManagerMixin",
 		"TrackedEntityMixin"
 	],

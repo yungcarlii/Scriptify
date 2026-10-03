@@ -53,6 +53,8 @@ public final class CobwebTactics {
         /** Webs placed against the current opponent, to cap it per engagement. */
         public int placedThisFight;
         public int lastTargetId = -1;
+        /** The descent a counter-smash was already weighed for, so it is decided once per dive. */
+        public long counterDecidedAt = -1000;
 
         public boolean bubbling;
         public int bubbleTicks;
@@ -245,11 +247,59 @@ public final class CobwebTactics {
             targetNearlyDead = living.getHealth() / Math.max(1.0f, living.getMaxHealth()) < 0.3f;
         }
         boolean losing = bot.getHealth() / Math.max(1.0f, bot.getMaxHealth()) < 0.4f;
+        // A mace player on the ground is a mace player about to leave it. Webbing their feet keeps
+        // them down there, where a sword reaches them and a smash does not.
+        boolean pinMacer = target instanceof net.minecraft.world.entity.player.Player player
+            && player.onGround() && holdsMaceKit(player);
 
-        if (!targetFleeing && !targetNearlyDead && !losing) return false;
+        if (!targetFleeing && !targetNearlyDead && !losing && !pinMacer) return false;
 
         // Even with a reason, it is a judgement call rather than a reflex.
         return profile.tech(profile.webBias());
+    }
+
+    private static boolean holdsMaceKit(net.minecraft.world.entity.player.Player player) {
+        var item = player.getMainHandItem().getItem();
+        return item == Items.MACE || item == Items.WIND_CHARGE;
+    }
+
+    /**
+     * The counter to a smash: web your own feet while the mace player comes down on you.
+     *
+     * <p>They land in the web instead of on you. A web stops a fall dead, so the smash that was
+     * built on that fall lands as an ordinary hit, and the player who dived is now stuck on the
+     * ground in front of you. Weighed once per dive, close underneath it and with time to aim -
+     * it is a read, not a reflex, and the better the bot the more often it makes it.</p>
+     *
+     * @return true when a placement has been started, in which case it runs through
+     *         {@link #tickPlacement} like any other web
+     */
+    public static boolean counterSmash(ServerPlayer bot, Entity target, BotProfile profile,
+                                       BotSettings settings) {
+        if (!settings.isCobwebEnabled()) return false;
+        if (!(target instanceof net.minecraft.world.entity.player.Player player)) return false;
+        if (player.onGround() || player.getMainHandItem().getItem() != Items.MACE) return false;
+        if (player.getDeltaMovement().y > -0.15) return false;                  // not coming down yet
+        if (player.getY() - bot.getY() < 2.5) return false;                     // too late to aim
+        if (Math.hypot(player.getX() - bot.getX(), player.getZ() - bot.getZ()) > 3.5) return false;
+        WebState st = state(bot.getName().getString());
+        if (st.pendingCell != null || st.bubbling) return false;
+        if (!Inv.has(bot.getInventory(), Items.COBWEB)) return false;
+
+        long now = bot.level().getGameTime();
+        boolean sameDive = now - st.counterDecidedAt < 30;
+        st.counterDecidedAt = now;
+        if (sameDive) return false;
+        if (!profile.tech(0.35 + profile.skill() * 0.4)) return false;
+
+        Level world = bot.level();
+        BlockPos feet = BlockPos.containing(bot.getX(), bot.getY() + 0.1, bot.getZ());
+        if (!BlockPlacer.isReplaceable(world, feet) || world.getBlockState(feet).is(Blocks.COBWEB)) return false;
+        if (BlockPlacer.solve(world, bot, feet) == null) return false;
+        st.pendingCell = feet;
+        st.placeTicks = 0;
+        st.attempts = 0;
+        return true;
     }
 
     /** Starts a placement attempt; the actual placing happens over the next few ticks. */

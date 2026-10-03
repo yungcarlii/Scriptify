@@ -102,6 +102,7 @@ public class BotTicker {
             String botName = bot.getName().getString();
             if (!BotManager.isBot(botName)) continue;
             botsSeen++;
+            BotActions.abortStrayMining(bot);
 
             BotProfile profile = BotProfile.of(botName);
 
@@ -144,6 +145,10 @@ public class BotTicker {
             if (!committed && !LoadGovernor.shouldThink(bot, profile, serverTick)) {
                 continue;
             }
+
+            // A fresh hand on the keys every decision: whatever drives the bot this tick presses them
+            // again, and anything that wants it still - bridging, eating, a clutch - gets it still.
+            scriptify.bots.ai.BotInput.release(bot);
 
             if (!techniqueBusy) {
                 BotUtils.update(bot, server, serverTick);

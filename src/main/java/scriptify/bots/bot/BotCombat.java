@@ -314,6 +314,10 @@ public class BotCombat {
 
         // --- cobwebs -----------------------------------------------------------------------
         if (CobwebTactics.tickPlacement(bot, target, profile, server, settings)) return;
+        if (CobwebTactics.counterSmash(bot, target, profile, settings)) {
+            CobwebTactics.tickPlacement(bot, target, profile, server, settings);
+            return;
+        }
         if (CobwebTactics.shouldWeb(bot, target, profile, settings, distance)) {
             CobwebTactics.begin(bot, target, profile);
             return;
@@ -482,6 +486,17 @@ public class BotCombat {
         // should be swinging at a target it is not committed to.
         if (state.intent == scriptify.bots.ai.Maneuver.Intent.HOLD
             || state.intent == scriptify.bots.ai.Maneuver.Intent.PEEL) {
+            // Eager hands at the back of a crowd: now and then a swing at the man just out of reach,
+            // which lands on whoever is standing in between. Players in a press hit their own side
+            // this way all the time; with friendly fire on it hurts, with it off it is a wasted swing.
+            if (state.intent == scriptify.bots.ai.Maneuver.Intent.HOLD && visible
+                && distance <= reach + 2.0 && state.attackCooldown <= 0
+                && bot.getAttackStrengthScale(0.5f) > 0.9f
+                && profile.tech(0.01 + (1.0 - profile.skill()) * 0.02)) {
+                releaseShield(bot, state, server);
+                BotActions.attack(bot, server, target);
+                state.attackCooldown = attackInterval(bot, state, profile, settings, target);
+            }
             return;
         }
 

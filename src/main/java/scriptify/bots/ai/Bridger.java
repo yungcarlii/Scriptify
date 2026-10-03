@@ -279,8 +279,7 @@ public final class Bridger {
         // Hold the column. A pillar only works if you stay on top of it, and a bot that keeps
         // drifting sideways places one block then steps off it. Movement input is cut and the
         // bot is eased back to the centre of the column it started on.
-        bot.zza = 0;
-        bot.xxa = 0;
+        BotInput.release(bot);
         bot.setSprinting(false);
 
         Vec3 velocity = bot.getDeltaMovement();
@@ -461,8 +460,7 @@ public final class Bridger {
 
         // Hold still until both feet are down. Placing mid-hop is what puts a bot in the hole.
         if (!bot.onGround()) {
-            bot.zza = 0;
-            bot.xxa = 0;
+            BotInput.release(bot);
             bot.setSprinting(false);
             Vec3 air = bot.getDeltaMovement();
             bot.setDeltaMovement(air.x * 0.5, air.y, air.z * 0.5);
@@ -557,8 +555,7 @@ public final class Bridger {
 
     /** Kills horizontal movement without touching the fall. */
     private static void brake(ServerPlayer bot) {
-        bot.zza = 0;
-        bot.xxa = 0;
+        BotInput.release(bot);
         bot.setSprinting(false);
         Vec3 velocity = bot.getDeltaMovement();
         bot.setDeltaMovement(velocity.x * 0.2, velocity.y, velocity.z * 0.2);

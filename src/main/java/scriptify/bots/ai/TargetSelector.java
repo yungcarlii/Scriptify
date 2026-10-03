@@ -117,6 +117,10 @@ public final class TargetSelector {
                 return null;
             }
         }
+        // Auto-target off still leaves declared wars: a faction set hostile to another has been told
+        // who to fight. Nobody else - this used to fall through to the full sweep whenever factions
+        // were on, so switching auto-target off did nothing and only the combat switch stopped them.
+        boolean warOnly = !settings.isAutoTargetEnabled() && !patrol;
 
         double maxDist = settings.getMaxTargetDistance();
         // A patrol spots enemies out to its sight range, and once it has one it will chase it a
@@ -176,6 +180,8 @@ public final class TargetSelector {
 
         for (Entity candidate : candidates) {
             if (!isAttackable(bot, candidate, settings)) continue;
+            if (warOnly && !(candidate instanceof Player p
+                && BotFaction.areEnemies(botName, p.getName().getString()))) continue;
             // The sweep box is square, so trim its corners back to a real radius for a patrol.
             if (patrol && bot.distanceTo(candidate) > maxDist) continue;
             // A patrol walking its route sees what is in front of it. Mid-fight it is already

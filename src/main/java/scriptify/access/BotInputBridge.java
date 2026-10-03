@@ -20,8 +20,9 @@ public interface BotInputBridge {
 	 * @param forward W/S, -1 to 1
 	 * @param strafe  A/D, -1 to 1, positive being left as in vanilla
 	 * @param jump    space
+	 * @param sprint  sprint key; applied with the rest so the backend cannot clear it in between
 	 */
-	void scriptify$holdInput(float forward, float strafe, boolean jump, long untilGameTime);
+	void scriptify$holdInput(float forward, float strafe, boolean jump, boolean sprint, long untilGameTime);
 
 	/** Lets go of every key this bridge is holding. */
 	void scriptify$releaseInput();

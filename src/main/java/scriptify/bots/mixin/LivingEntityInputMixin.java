@@ -46,6 +46,9 @@ public abstract class LivingEntityInputMixin implements BotInputBridge {
 	private boolean scriptify$jump;
 
 	@Unique
+	private boolean scriptify$sprint;
+
+	@Unique
 	private long scriptify$until;
 
 	@Inject(method = "aiStep", at = @At("HEAD"))
@@ -66,13 +69,18 @@ public abstract class LivingEntityInputMixin implements BotInputBridge {
 		this.zza = this.scriptify$forward * scale;
 		this.xxa = this.scriptify$strafe * scale;
 		this.jumping = this.scriptify$jump;
+		if (self.isSprinting() != this.scriptify$sprint) {
+			self.setSprinting(this.scriptify$sprint);
+		}
 	}
 
 	@Override
-	public void scriptify$holdInput(float forward, float strafe, boolean jump, long untilGameTime) {
+	public void scriptify$holdInput(float forward, float strafe, boolean jump, boolean sprint,
+			long untilGameTime) {
 		this.scriptify$forward = forward;
 		this.scriptify$strafe = strafe;
 		this.scriptify$jump = jump;
+		this.scriptify$sprint = sprint;
 		this.scriptify$until = untilGameTime;
 		this.scriptify$held = true;
 	}

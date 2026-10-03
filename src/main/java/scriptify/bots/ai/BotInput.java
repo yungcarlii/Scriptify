@@ -27,8 +27,13 @@ public final class BotInput {
      * @return false when the bot cannot be driven this way, in which case nothing was pressed
      */
     public static boolean hold(ServerPlayer bot, float forward, float strafe, boolean jump) {
+        return hold(bot, forward, strafe, jump, bot.isSprinting());
+    }
+
+    /** Holds W/A/S/D and space, and the sprint key as given. */
+    public static boolean hold(ServerPlayer bot, float forward, float strafe, boolean jump, boolean sprint) {
         if (!((Object) bot instanceof BotInputBridge bridge)) return false;
-        bridge.scriptify$holdInput(clamp(forward), clamp(strafe), jump,
+        bridge.scriptify$holdInput(clamp(forward), clamp(strafe), jump, sprint,
             bot.level().getGameTime() + HOLD_TICKS);
         return true;
     }

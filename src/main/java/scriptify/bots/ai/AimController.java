@@ -43,6 +43,12 @@ public final class AimController {
         public float glanceYaw;
         public int settleTicks;
         public boolean hasTarget;
+        /** Where the hand has wandered off the target, in blocks: a random walk, not noise. */
+        public double errX;
+        public double errY;
+        public double errZ;
+        /** How likely, per tick, a look elsewhere is right now. */
+        public double glanceChance = 0.003;
     }
 
     public static AimState state(String botName) {
@@ -60,8 +66,18 @@ public final class AimController {
     /** Aim at an entity, leading it slightly the way a human tracks a strafing player. */
     public static void lookAt(ServerPlayer bot, Entity target, BotProfile profile) {
         if (target == null) return;
+        // Within reach a player watches the man they are fighting. Further off - waiting their turn,
+        // walking in - they look about: at the crowd, the ground, whoever just shouted. An army that
+        // all stared at one player the whole time was the clearest sign it was not players.
+        double dist = bot.distanceTo(target);
+        state(bot.getName().getString()).glanceChance = dist > 5.0 ? 0.025 : 0.004;
         Vec3 aim = aimPoint(bot, target, profile);
         lookAtPos(bot, aim, profile, false);
+    }
+
+    /** A stable 0-1 aim skill per bot, from its name, so the same bot always aims the same way. */
+    private static double skillOf(ServerPlayer bot) {
+        return BotProfile.of(bot.getName().getString()).skill();
     }
 
     /** Aim precisely (used for block placement, where sloppiness means a misplaced block). */
@@ -104,9 +120,11 @@ public final class AimController {
             if (st.glanceTicks > 0) {
                 st.glanceTicks--;
                 wantYaw += st.glanceYaw;
-            } else if (Rng.chance(profile.rng(), 0.003)) {
-                st.glanceTicks = Rng.range(profile.rng(), 2, 6);
-                st.glanceYaw = (float) Rng.range(profile.rng(), -35.0, 35.0);
+            } else if (Rng.chance(profile.rng(), st.glanceChance)) {
+                boolean far = st.glanceChance > 0.01;
+                st.glanceTicks = far ? Rng.range(profile.rng(), 6, 20) : Rng.range(profile.rng(), 2, 6);
+                double reach = far ? 70.0 : 35.0;
+                st.glanceYaw = (float) Rng.range(profile.rng(), -reach, reach);
             }
         }
 
@@ -115,8 +133,8 @@ public final class AimController {
 
         // Base turn rate, eased: big corrections start fast and decelerate near the target.
         double baseSpeed = profile.aimSpeed() * (precise ? 1.6 : 1.0);
-        double yawStep = ease(yawDelta, baseSpeed);
-        double pitchStep = ease(pitchDelta, baseSpeed * 0.75);
+        double yawStep = ease(yawDelta, baseSpeed, precise);
+        double pitchStep = ease(pitchDelta, baseSpeed * 0.75, precise);
 
         // Flick overshoot: on a large correction, aim a few degrees past and come back.
         if (!precise && Math.abs(yawDelta) > 45 && st.overshootTicks <= 0
@@ -150,9 +168,11 @@ public final class AimController {
      * capped by the bot's maximum turn rate. Produces acceleration at the start of a flick
      * and a soft settle at the end, instead of a linear sweep or a snap.
      */
-    private static double ease(float delta, double maxRate) {
+    private static double ease(float delta, double maxRate, boolean precise) {
         double magnitude = Math.abs(delta);
-        double proportional = magnitude * 0.42 + 0.6;
+        // Tracking a player closes about a third of the gap a tick: a hand settling on a target, not a
+        // lock snapping on. Lining up a block or a bucket is deliberate and quicker to settle.
+        double proportional = magnitude * (precise ? 0.42 : 0.32) + (precise ? 0.6 : 0.5);
         double step = Math.min(magnitude, Math.min(proportional, maxRate));
         return Math.signum(delta) * step;
     }
@@ -173,24 +193,37 @@ public final class AimController {
      * The point the bot actually aims at: the target's hitbox, offset by a personal bias and
      * lagging behind fast movement so tracking is imperfect.
      */
+    /**
+     * Where on the target the hand is actually pointing this tick.
+     *
+     * <p>A person tracking a moving player does three things a machine does not. They react to what
+     * they saw, so the crosshair trails the target by a few ticks rather than leading it. Their hand
+     * drifts, and drifts further the faster the target crosses their view - a random walk, not
+     * jitter, so the error wanders and comes back rather than buzzing. And they each have a habit:
+     * this one aims at the head, that one at the chest. The old version led every target exactly,
+     * which on a strafing player is the signature of aim assist.</p>
+     */
     private static Vec3 aimPoint(ServerPlayer bot, Entity target, BotProfile profile) {
+        AimState st = state(bot.getName().getString());
         var box = target.getBoundingBox();
         double height = box.maxY - box.minY;
-
-        // Aim height varies per bot: some players aim at the head, some at the chest.
-        double aimHeight = box.minY + height * 0.75
-            + profile.rng().nextGaussian() * height * 0.05;
+        double skill = skillOf(bot);
 
         Vec3 vel = target.getDeltaMovement();
-        // Better bots lead the target; worse bots trail it.
-        double lead = 1.0;
-        double dist = bot.distanceTo(target);
-        double leadScale = Math.min(1.0, dist / 6.0);
+        double lateral = Math.hypot(vel.x, vel.z);
+        double lag = 1.0 + (1.0 - skill) * 3.0;
 
+        double sigma = 0.025 + (1.0 - skill) * 0.04 + lateral * 0.25;
+        var rng = profile.rng();
+        st.errX = st.errX * 0.9 + rng.nextGaussian() * sigma;
+        st.errY = st.errY * 0.9 + rng.nextGaussian() * sigma * 0.6;
+        st.errZ = st.errZ * 0.9 + rng.nextGaussian() * sigma;
+
+        double habit = 0.55 + skill * 0.35;          // chest for some, head for others
         return new Vec3(
-            target.getX() + vel.x * lead * leadScale,
-            aimHeight,
-            target.getZ() + vel.z * lead * leadScale
+            target.getX() - vel.x * lag + st.errX,
+            box.minY + height * habit + st.errY,
+            target.getZ() - vel.z * lag + st.errZ
         );
     }
 
@@ -200,7 +233,7 @@ public final class AimController {
      */
     public static void lookPitch(ServerPlayer bot, float desiredPitch, BotProfile profile) {
         float delta = wrap(desiredPitch - bot.getXRot());
-        double step = ease(delta, profile.aimSpeed() * 1.2);
+        double step = ease(delta, profile.aimSpeed() * 1.2, true);
         bot.setXRot(clampPitch(bot.getXRot() + (float) step));
     }
 

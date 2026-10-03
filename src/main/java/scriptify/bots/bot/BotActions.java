@@ -289,7 +289,26 @@ public final class BotActions {
      * barely dents it - so mining out of a cobweb needs this rather than {@link #attack}.
      */
     public static void attackContinuous(ServerPlayer bot, MinecraftServer server) {
+        MINING.add(bot.getId());
         run(server, bot.getName().getString(), ATTACK_CONTINUOUS);
+    }
+
+    /** Bots that are mining on purpose - digging out, cutting a web - by entity id. */
+    private static final java.util.Set<Integer> MINING = new java.util.HashSet<>();
+
+    /**
+     * Stops any block-breaking a bot did not mean to start.
+     *
+     * <p>A swing that lands on a block instead of a player starts breaking it, and nothing ever told
+     * the server to stop - so the crack overlay sat on a stray block for the rest of the fight, still
+     * growing. Called once a tick per bot; a field read when nothing is being broken.</p>
+     */
+    public static void abortStrayMining(ServerPlayer bot) {
+        var mode = (scriptify.bots.mixin.ServerPlayerGameModeAccessor) bot.gameMode;
+        if (!mode.scriptify$isDestroyingBlock() || MINING.contains(bot.getId())) return;
+        bot.gameMode.handleBlockBreakAction(mode.scriptify$destroyPos(),
+            net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK,
+            net.minecraft.core.Direction.DOWN, bot.level().getMaxY(), 0);
     }
 
     public static void useOnce(ServerPlayer bot, MinecraftServer server) {
@@ -322,6 +341,7 @@ public final class BotActions {
      * holding it carries on chipping at whatever it looks at next.</p>
      */
     public static void stopUsing(ServerPlayer bot, MinecraftServer server) {
+        MINING.remove(bot.getId());
         run(server, bot.getName().getString(), STOP);
     }
 

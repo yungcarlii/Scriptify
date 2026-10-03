@@ -55,6 +55,14 @@ public class BotProfile {
         this.reach = REACH_MIN + random.nextDouble() * (REACH_MAX - REACH_MIN);
     }
 
+    /**
+     * How good this bot is, 0 to 1, fixed for its name. Steadier aim, quicker heals and fewer
+     * slips at the top; the bottom of the range is the player who forgets to eat until it is too late.
+     */
+    public double skill() {
+        return Math.floorMod(botName.hashCode() * 31 + 7, 1000) / 1000.0;
+    }
+
     /** The window bot reach is rolled from. */
     private static final double REACH_MIN = 1.5;
     private static final double REACH_MAX = 3.0;
