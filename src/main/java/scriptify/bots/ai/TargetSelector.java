@@ -390,6 +390,10 @@ public final class TargetSelector {
             // so neither is fetched until something actually needs it, and the bot's own name
             // is only needed on the faction path.
             String targetName = player.getName().getString();
+            // Never the player it is following.
+            if (scriptify.bots.bot.BotFollow.follows(bot.getName().getString(), targetName)) {
+                return false;
+            }
 
             if (settings.isFactionsEnabled()) {
                 String botName = bot.getName().getString();

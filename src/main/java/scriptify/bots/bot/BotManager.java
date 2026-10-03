@@ -213,6 +213,7 @@ public class BotManager {
         scriptify.bots.ai.LoadGovernor.forget(name);
         scriptify.bots.ai.PitEscape.remove(name);
         scriptify.bots.ai.WaterClutch.remove(name);
+        BotFollow.stop(name);
         BotActions.forget(name);
         rosterChanged();
     }

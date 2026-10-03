@@ -174,6 +174,15 @@ public class BotTicker {
                 tickPathFollowing(bot, botName, profile);
             }
 
+            // Following a player: catch up whenever there is nothing to fight (or fighting is off).
+            if (BotFollow.isFollowing(botName) && BotUtils.canAct(bot)
+                && !scriptify.bots.ai.CobwebTactics.isBusy(botName)) {
+                var target = BotCombat.getTarget(botName);
+                if (!settings.isCombatEnabled() || target == null || !target.isAlive()) {
+                    BotFollow.tick(bot, server);
+                }
+            }
+
             // Releases the crouch once whatever asked for it stops asking. Cheap: a null map
             // lookup for every bot that is not crouching.
             scriptify.bots.ai.Crouch.tick(bot, server);

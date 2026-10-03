@@ -135,6 +135,15 @@ public class BotCommand {
             .then(cmd("performance", "What the bots are costing the server right now")
                 .executes(BotCommand::performance))
 
+            // ========== FOLLOW ==========
+            .then(cmd("follow", "Bots follow a player around")
+                .then(BotSelector.bots("bots")
+                    .then(BotSelector.players("player")
+                        .executes(BotCommand::follow))))
+            .then(cmd("unfollow", "Stop bots following anyone")
+                .then(BotSelector.bots("bots")
+                    .executes(BotCommand::unfollow)))
+
             // ========== INSPECT ==========
             .then(cmd("who", "Show a bot's personality and current playstyle")
                 .then(BotSelector.bots("botname")
@@ -682,6 +691,44 @@ public class BotCommand {
             shown++;
         }
         return shown;
+    }
+
+    private static int follow(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        var source = ctx.getSource();
+        List<String> bots = BotSelector.bots(ctx, "bots");
+        List<ServerPlayer> leaders = BotSelector.onlinePlayers(ctx, "player");
+        if (leaders.size() != 1) {
+            source.sendFailure(Component.literal("Pick one player to follow."));
+            return 0;
+        }
+        String leader = leaders.get(0).getName().getString();
+        int count = 0;
+        for (String bot : bots) {
+            if (bot.equalsIgnoreCase(leader)) continue;          // nobody follows themselves
+            scriptify.bots.bot.BotFollow.follow(bot, leader);
+            // Drop any fight with the leader, so the escort does not finish a swing at them first.
+            var target = BotCombat.getTarget(bot);
+            if (target != null && target.getName().getString().equalsIgnoreCase(leader)) {
+                BotCombat.clearTarget(BotManager.canonical(bot));
+            }
+            count++;
+        }
+        int n = count;
+        source.sendSuccess(() -> Component.literal(BotSelector.describe(bots) + " following " + leader
+), true);
+        return count;
+    }
+
+    private static int unfollow(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        var source = ctx.getSource();
+        List<String> bots = BotSelector.bots(ctx, "bots");
+        int stopped = 0;
+        for (String bot : bots) {
+            if (scriptify.bots.bot.BotFollow.stop(bot)) stopped++;
+        }
+        int n = stopped;
+        source.sendSuccess(() -> Component.literal(n + " bot" + (n == 1 ? "" : "s") + " stopped following"), true);
+        return stopped;
     }
 
     private static int botList(CommandContext<CommandSourceStack> ctx) {

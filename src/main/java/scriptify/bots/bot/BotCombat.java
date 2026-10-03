@@ -391,6 +391,7 @@ public class BotCombat {
         // A bot on a route is walked by the route. Wandering as well had the two pulling at the
         // same bot on the same tick, which read as a stagger along the path.
         if (BotPath.isFollowing(bot.getName().getString())) return;
+        if (BotFollow.isFollowing(bot.getName().getString())) return;   // walked by BotFollow
         if (rally(bot, state, server)) return;
         BotNavigation.idleWander(bot);
     }
