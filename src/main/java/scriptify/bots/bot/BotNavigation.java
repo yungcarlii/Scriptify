@@ -50,6 +50,9 @@ public class BotNavigation {
         public BlockPos pathGoal = null;
         public int pathCooldown = 0;
         public int pathFailures = 0;
+        /** Last check of whether the goal is a straight walk away, and the answer. */
+        public long directCheckTick = -100;
+        public boolean directClear = false;
 
         // Combat movement
         public int strafeDir = 1;
@@ -233,6 +236,18 @@ public class BotNavigation {
             state.path = List.of();
             return null;
         }
+        // A straight walk across open ground needs no route. The router steps in four directions
+        // only, so following it over a flat field meant walking a staircase - along one axis, then
+        // the other - where any player cuts the diagonal. Asked every few ticks, not every tick.
+        long now = bot.level().getGameTime();
+        if (now - state.directCheckTick >= DIRECT_RECHECK) {
+            state.directCheckTick = now;
+            state.directClear = straightWalkable(bot.level(), botPos, goal);
+        }
+        if (state.directClear) {
+            state.path = List.of();
+            return null;
+        }
 
         BlockPos goalBlock = BlockPos.containing(goal.x, goal.y, goal.z);
         boolean goalMoved = state.pathGoal == null
@@ -263,6 +278,18 @@ public class BotNavigation {
 
         if (state.path.isEmpty()) return null;
 
+        // Cut corners on the route the same way: head for the furthest of the next few waypoints
+        // that is a straight walk away, rather than touching every step of the staircase.
+        if (now % 5 == Math.floorMod(bot.getId(), 5)) {
+            int last = Math.min(state.path.size() - 1, state.pathIndex + 8);
+            for (int i = last; i > state.pathIndex; i--) {
+                if (straightWalkable(bot.level(), botPos, state.path.get(i))) {
+                    state.pathIndex = i;
+                    break;
+                }
+            }
+        }
+
         Vec3 waypoint = state.path.get(Math.min(state.pathIndex, state.path.size() - 1));
         double dist = botPos.distanceTo(waypoint);
         if (dist < 1.25) {
@@ -274,6 +301,35 @@ public class BotNavigation {
             waypoint = state.path.get(state.pathIndex);
         }
         return waypoint;
+    }
+
+    /** Ticks between checks of whether the goal is a straight walk away. */
+    private static final int DIRECT_RECHECK = 10;
+
+    /**
+     * Whether a player could walk from one point to another in a straight line on the level: floor
+     * all the way, room for the body, no wall and no drop. Checked a little either side of the
+     * centre line too, so the shortcut does not clip a corner the body would catch on.
+     */
+    static boolean straightWalkable(Level world, Vec3 from, Vec3 to) {
+        if (Math.abs(to.y - from.y) > 0.6) return false;
+        double dx = to.x - from.x;
+        double dz = to.z - from.z;
+        double length = Math.hypot(dx, dz);
+        if (length < 0.5) return true;
+        double ux = dx / length;
+        double uz = dz / length;
+        double y = from.y + 0.1;
+        for (double t = 0.4; t < length; t += 0.5) {
+            for (double side = -0.3; side <= 0.31; side += 0.3) {
+                double x = from.x + ux * t - uz * side;
+                double z = from.z + uz * t + ux * side;
+                BlockPos feet = BlockPos.containing(x, y, z);
+                if (collides(world, feet) || collides(world, feet.above())) return false;
+                if (!collides(world, feet.below())) return false;
+            }
+        }
+        return true;
     }
 
     /** True when the bot has no route to the goal (used to trigger bridging). */
