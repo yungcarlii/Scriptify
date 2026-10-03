@@ -116,9 +116,10 @@ public final class Bridger {
         // Nothing to build with: nothing to commit to. Latching anyway left the climb claiming a
         // bot that could only stand there.
         if (findBuildingBlock(bot) < 0) return false;
-        // Somebody jumping is not somebody up a wall. Only a climb that big on its own counts
-        // while they are in the air.
-        if (!target.onGround() && dy < 2.5) return false;
+        // Somebody in the air is not somebody up a wall. A mace player goes ten blocks up on a
+        // wind charge for every smash, and treating that as a ledge had a whole army start
+        // pillaring under him each time. Only climb to someone standing on something.
+        if (!target.onGround()) return false;
 
         double horizontal = Math.hypot(target.getX() - bot.getX(), target.getZ() - bot.getZ());
         if (horizontal > CLIMB_MAX_RANGE) return false;   // too far off; walk closer first

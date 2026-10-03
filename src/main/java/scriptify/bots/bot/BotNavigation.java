@@ -419,16 +419,20 @@ public class BotNavigation {
             return;
         }
 
-        // Bunny hop, on a per-bot irregular cadence instead of every landing.
+        // Bunny hop, on a per-bot irregular cadence instead of every landing - and only to cover
+        // ground. Sprint-jumping is how a player gets somewhere; nobody hops in the scrum two blocks
+        // from the man they are fighting, or into the back of the crowd in front of them. Hopping
+        // everywhere had half of a two-hundred-and-fifty strong army in the air at any moment.
         boolean useBhop = (pathWalkType != null) ? pathWalkType.equals("bhop") : settings.isBhopEnabled();
         if (useBhop && speed >= 1.0 && bot.onGround() && !canStepUp && !isWall && !holeAhead
-            && !edgeNear && !state.narrowFooting
+            && !edgeNear && !state.narrowFooting && !bot.horizontalCollision
+            && horizontalDist > BHOP_MIN_DISTANCE
             && state.jumpCooldown <= 0 && state.bhopCooldown <= 0) {
             bot.jumpFromGround();
             state.jumpCooldown = 10;
             state.bhopCooldown = profile != null
-                ? Rng.range(profile.rng(), 0, 14)
-                : (int) (Math.random() * 10);
+                ? Rng.range(profile.rng(), 2, 24)
+                : 2 + (int) (Math.random() * 22);
         }
 
         // W-tap: drop sprint for a couple of ticks after landing a hit to reset knockback.
@@ -576,7 +580,9 @@ public class BotNavigation {
                     state.avoidDirection = (state.avoidDirection == 0) ? 1 : -state.avoidDirection;
                     state.avoidTicks = 30;
                 }
-                if (state.jumpCooldown <= 0) {
+                // A jump gets over a block, not over the crowd. Wedged in a press of players with
+                // nothing solid in front, a player shuffles and waits; one that hops is a bot.
+                if (state.jumpCooldown <= 0 && bot.horizontalCollision) {
                     bot.jumpFromGround();
                     state.jumpCooldown = 10;
                 }
@@ -589,6 +595,9 @@ public class BotNavigation {
             state.stuckTicks = 0;
         }
     }
+
+    /** Nearer the goal than this, a bot runs rather than hops. */
+    private static final double BHOP_MIN_DISTANCE = 6.0;
 
     /** A fall of more than this many blocks hurts, so it counts as an edge rather than a step. */
     private static final int SAFE_DROP = 3;

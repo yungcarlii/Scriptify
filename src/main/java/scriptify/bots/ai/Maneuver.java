@@ -73,6 +73,8 @@ public final class Maneuver {
         public double laneAngle;
         public float healthAtDecision = 20.0f;
         public int sinceHit;
+        /** Holding back because the front line is full, rather than as a reserve. */
+        public boolean queued;
     }
 
     /** Movement instruction produced for this tick. */
@@ -102,6 +104,9 @@ public final class Maneuver {
      * Advances the intent clock and re-decides when the current intent expires or the
      * situation invalidates it.
      */
+    /** Bots that fit in the front line round one target. */
+    private static final int FRONT_LINE = 9;
+
     public static Intent decide(ServerPlayer bot, Entity target, BotProfile profile,
                                 BotSettings settings, double distance, boolean wantsOut,
                                 boolean canReachMelee) {
@@ -189,6 +194,17 @@ public final class Maneuver {
 
         if (brawl) {
             Entity focus = Engagement.focusFor(botName);
+
+            // Only so many bodies fit round one man. With the front line already full, a bot
+            // further out holds where it is and waits for a gap - the ring of fighters with the
+            // crowd pressing behind them that a big fight actually looks like. Without it a whole
+            // army walked into the same three blocks, a pile no player has ever seen.
+            st.queued = false;
+            if (distance > settings.getMeleeRange() + 0.5
+                && SquadCoordinator.contactCount(target) >= FRONT_LINE) {
+                st.queued = true;
+                return Intent.HOLD;
+            }
 
             // The collapse: if the group has called a target and this bot is on it, dive.
             if (focus == target && canReachMelee
@@ -327,6 +343,12 @@ public final class Maneuver {
                 // not trudge away from the fight to reach some nominal standoff distance -
                 // that was the behaviour that read as bots aimlessly backing off.
                 double standoff = Math.max(distance, profile.preferredGap());
+                if (st.queued) {
+                    // Waiting on a full front line: every bot at its own depth behind it, so the
+                    // crowd is several bodies thick rather than one solid wall at arm's length.
+                    double depth = 1.0 + Math.floorMod(botName.hashCode(), 7) * 0.5;
+                    standoff = Math.max(settings.getMeleeRange() + depth, Math.min(distance, standoff));
+                }
                 Vec3 goal = pointAt(bot, target, standoff, st.laneAngle * 0.8);
                 yield new Order(goal, speed * 0.85, 0.7, true);
             }

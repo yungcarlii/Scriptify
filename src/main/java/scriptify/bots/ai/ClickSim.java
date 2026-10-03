@@ -87,8 +87,12 @@ public final class ClickSim {
      * poured into one, only next to it, and flows in from there.
      */
     public static BlockPos waterCell(ServerPlayer bot) {
+        // No entity check for a bucket. A click that lands on a player does nothing to them and falls
+        // through to the bucket's own use, which casts for blocks alone - so a crowd underneath does
+        // not stop water going down. Asking whether somebody was in the way had a bot falling into a
+        // packed army hold its bucket all the way to the ground.
         BlockHitResult hit = ray(bot, ClipContext.Fluid.NONE);
-        if (hit.getType() != HitResult.Type.BLOCK || entityInTheWay(bot, hit)) return null;
+        if (hit.getType() != HitResult.Type.BLOCK) return null;
         Level world = bot.level();
         BlockPos clicked = hit.getBlockPos();
         BlockPos cell = world.getBlockState(clicked).getBlock() instanceof LiquidBlockContainer
@@ -103,7 +107,7 @@ public final class ClickSim {
     /** The water source an empty bucket would scoop, or null. */
     public static BlockPos pickupCell(ServerPlayer bot) {
         BlockHitResult hit = ray(bot, ClipContext.Fluid.SOURCE_ONLY);
-        if (hit.getType() != HitResult.Type.BLOCK || entityInTheWay(bot, hit)) return null;
+        if (hit.getType() != HitResult.Type.BLOCK) return null;            // see waterCell
         BlockPos pos = hit.getBlockPos();
         var fluid = bot.level().getFluidState(pos);
         return fluid.isSource() && fluid.is(FluidTags.WATER) ? pos : null;

@@ -194,7 +194,7 @@ public final class Engagement {
             Entity target = BotCombat.getTarget(botName);
             if (target == null || !target.isAlive()) continue;
 
-            Battle battle = findBattleNear(bot);
+            Battle battle = findBattleNear(bot, botName);
             if (battle == null) {
                 battle = new Battle();
                 BATTLES.add(battle);
@@ -224,8 +224,18 @@ public final class Engagement {
             : -1;
     }
 
-    private static Battle findBattleNear(ServerPlayer bot) {
+    /**
+     * The battle this bot belongs to: one of its own side's, close by.
+     *
+     * <p>A battle is one side's fight, not everyone's in the area. Grouping by distance alone put both
+     * sides of a fight into one battle, so each side's targets became the other's "enemies": a
+     * 250-strong army found its own men in the enemy list, called one of them as the group focus,
+     * and sent its screens to protect the enemy's wounded.</p>
+     */
+    private static Battle findBattleNear(ServerPlayer bot, String botName) {
         for (Battle battle : BATTLES) {
+            ServerPlayer first = battle.members.get(0);
+            if (!sameSide(first.getName().getString(), botName)) continue;
             for (ServerPlayer member : battle.members) {
                 if (member.level() != bot.level()) continue;
                 if (member.distanceToSqr(bot) <= BATTLE_RADIUS_SQ) return battle;

@@ -1822,6 +1822,9 @@ public class BotCommand {
                 + (target != null ? target.getName().getString() : "none")), false);
             source.sendSuccess(() -> Component.literal("Doing: "
                 + scriptify.bots.ai.Maneuver.intentOf(name).name().toLowerCase(java.util.Locale.ROOT)), false);
+            var held = BotCombat.getState(name);
+            source.sendSuccess(() -> Component.literal("Shield: "
+                + (held.isUsingShield ? "raised" : "down")), false);
             if (scriptify.bots.ai.Engagement.inBrawl(name)) {
                 source.sendSuccess(() -> Component.literal("In a brawl as "
                     + scriptify.bots.ai.Engagement.roleOf(name).name().toLowerCase(java.util.Locale.ROOT)

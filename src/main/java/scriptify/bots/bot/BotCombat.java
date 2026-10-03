@@ -99,6 +99,10 @@ public class BotCombat {
         public long weaponScanTick = 0;
         public int cachedNearbyEnemies = 0;
         public long nearbyScanTick = 0;
+
+        // Rallying: no enemy in sight, but the war is on and the fight is somewhere.
+        public Vec3 rallyPoint = null;
+        public long rallyScanTick = 0;
     }
 
     public static CombatState getState(String botName) {
@@ -383,7 +387,62 @@ public class BotCombat {
         // A bot on a route is walked by the route. Wandering as well had the two pulling at the
         // same bot on the same tick, which read as a stagger along the path.
         if (BotPath.isFollowing(bot.getName().getString())) return;
+        if (rally(bot, state, server)) return;
         BotNavigation.idleWander(bot);
+    }
+
+    /** How far a bot at war goes looking for the fight when nobody is in sight. */
+    private static final double RALLY_RANGE = 160.0;
+
+    /** How often the rally point is brought up to date, in ticks. */
+    private static final int RALLY_RESCAN = 40;
+
+    /** Close enough to the rally point to stop marching and start looking. */
+    private static final double RALLY_ARRIVED = 6.0;
+
+    /**
+     * Heads for the fight when there is no one in sight to fight.
+     *
+     * <p>Targets are picked from what is near, and a field of two hundred and fifty means most of
+     * an army starts too far from the enemy to pick anyone - so it stood still, a hundred players
+     * idle in a war. A player in that army knows where the fight is: the noise, the nametags, the
+     * crowd moving. So a bot whose faction is at war walks toward the nearest enemy it knows of, and
+     * target selection takes over once someone is actually in reach. Only between hostile factions:
+     * a bot on its own does not go looking across the map for strangers.</p>
+     */
+    private static boolean rally(ServerPlayer bot, CombatState state, MinecraftServer server) {
+        long now = bot.level().getGameTime();
+        if (now >= state.rallyScanTick) {
+            state.rallyScanTick = now + RALLY_RESCAN + Math.floorMod(bot.getId(), 20);
+            state.rallyPoint = nearestFactionEnemy(bot, server);
+        }
+        if (state.rallyPoint == null) return false;
+        Vec3 here = bot.position();
+        if (here.distanceTo(state.rallyPoint) < RALLY_ARRIVED) {
+            state.rallyPoint = null;
+            return false;
+        }
+        BotTicker.faceAlongPath(bot, BotProfile.of(bot.getName().getString()), here, state.rallyPoint);
+        BotNavigation.moveTowardPosition(bot, state.rallyPoint, 1.0);
+        return true;
+    }
+
+    /** Where the nearest player of a hostile faction is, within rally range, or null. */
+    private static Vec3 nearestFactionEnemy(ServerPlayer bot, MinecraftServer server) {
+        String name = bot.getName().getString();
+        if (!BotSettings.get().isFactionsEnabled() || BotFaction.getFaction(name) == null) return null;
+        Vec3 best = null;
+        double bestDist = RALLY_RANGE * RALLY_RANGE;
+        for (ServerPlayer other : server.getPlayerList().getPlayers()) {
+            if (other == bot || !other.isAlive() || other.level() != bot.level()
+                || other.isSpectator() || other.isCreative()) continue;
+            double d = other.distanceToSqr(bot);
+            if (d >= bestDist) continue;
+            if (!BotFaction.areEnemies(name, other.getName().getString())) continue;
+            bestDist = d;
+            best = other.position();
+        }
+        return best;
     }
 
     // ===================== aiming =====================
@@ -411,6 +470,11 @@ public class BotCombat {
         if (choice.valid()) Inv.equip(bot.getInventory(), choice.slot(), 0);
 
         double reach = profile.reach;
+        // A spear reaches further than an arm, and its holder jabs from out there rather than walking
+        // in to sword range - that is the whole point of carrying one.
+        var held = bot.getMainHandItem();
+        boolean spear = WeaponSelector.isSpear(held.getItem());
+        if (spear) reach = Math.max(reach, WeaponSelector.reach(held) - 0.4);
         moveForCombat(bot, target, state, profile, settings, distance, serverTick);
 
         // Who hangs back is decided by the bot's role in the fight, not by a separate queue.
@@ -439,6 +503,7 @@ public class BotCombat {
             || target.getY() - bot.getY() > 0.6;
         boolean inReach = distance <= reach
             || gapToTarget <= Math.max(reach - 0.3, SHORT_REACH_FLOOR)
+            || (spear && gapToTarget <= WeaponSelector.reach(held) - 0.3)
             || (cannotClose && gapToTarget <= ATTACK_REACH - 0.2);
         if (!visible || !inReach) return;
         if (state.attackCooldown > 0) return;
@@ -517,11 +582,6 @@ public class BotCombat {
         if (!TargetSelector.canStillAttack(bot, target, settings)) {
             return;
         }
-        if (!settings.isFriendlyFireEnabled() && target instanceof Player
-            && BotFaction.areAllies(botName, target.getName().getString())) {
-            return;
-        }
-
         // Deliberate miss (arena handicap setting).
         if (settings.getMissChance() > 0 && profile.rng().nextInt(100) < settings.getMissChance()) {
             BotActions.swing(bot, server);
@@ -989,6 +1049,12 @@ public class BotCombat {
             && distance > settings.getMeleeRange()) {
             threatened = true;
         }
+        // Waiting behind a full front line: out of reach to swing, well inside reach of a smash or a
+        // sweep, so the shield stays up - the press of raised shields behind the men in contact.
+        if (state.intent == scriptify.bots.ai.Maneuver.Intent.HOLD
+            && distance <= settings.getMeleeRange() + QUEUE_SHIELD_REACH) {
+            threatened = true;
+        }
         if (settings.isShieldMace() && distance <= 6.0
             && target instanceof Player p2 && isWindingUpMace(p2)) {
             threatened = true;
@@ -1059,6 +1125,9 @@ public class BotCombat {
      * however well aimed it is.
      */
     private static final double ATTACK_REACH = 2.9;
+
+    /** How far behind the front line a waiting bot still keeps its shield up. */
+    private static final double QUEUE_SHIELD_REACH = 5.0;
 
     /**
      * Eye-to-hitbox gap inside which any bot will swing, however short its own reach. A personal
@@ -1210,5 +1279,6 @@ public class BotCombat {
         Bridger.clear();
         scriptify.bots.ai.LoadGovernor.clear();
         scriptify.bots.ai.PitEscape.clear();
+        scriptify.bots.ai.WaterClutch.clear();
     }
 }

@@ -248,6 +248,7 @@ public final class BotActions {
      * missed hit is supposed to look like.</p>
      */
     public static void attack(ServerPlayer bot, MinecraftServer server, Entity target) {
+        // A spear needs nothing special here: the backend's attack sees one in hand and stabs.
         if (blockInTheWay(bot, target)) {
             run(server, bot.getName().getString(), SWING);
             return;

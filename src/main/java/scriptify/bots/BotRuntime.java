@@ -94,6 +94,21 @@ public final class BotRuntime {
      * death being final and vanilla scattering the contents.</p>
      */
     private static void registerNpcRules() {
+        // Friendly fire off: a bot's stray blows - the sweep of an axe through a packed line, a
+        // spear stab that carries on into the man beside the target - do not hurt its own side.
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+            if (!(entity instanceof net.minecraft.server.level.ServerPlayer victim)
+                || !(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer attacker)
+                || victim == attacker) {
+                return true;
+            }
+            var settings = scriptify.bots.bot.BotSettings.get();
+            if (settings.isFriendlyFireEnabled() || !settings.isFactionsEnabled()) return true;
+            String attackerName = attacker.getName().getString();
+            if (!scriptify.bots.bot.BotManager.isBot(attackerName)) return true;
+            return !scriptify.bots.bot.BotFaction.areAllies(attackerName, victim.getName().getString());
+        });
+
         ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) -> {
             if (!(entity instanceof net.minecraft.server.level.ServerPlayer player)) {
                 return true;

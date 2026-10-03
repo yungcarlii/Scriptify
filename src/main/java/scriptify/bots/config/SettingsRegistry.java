@@ -187,7 +187,7 @@ public final class SettingsRegistry {
             TARGETING, Items.GLASS, BotSettings::isRequireLineOfSight, BotSettings::setRequireLineOfSight);
         bool("factions", "Factions", "Respect faction alliances", TARGETING,
             scriptify.ui.DyedItems.banner(DyeColor.WHITE), BotSettings::isFactionsEnabled, BotSettings::setFactionsEnabled);
-        bool("friendly-fire", "Friendly fire", "Allow hitting allies", TARGETING,
+        bool("friendly-fire", "Friendly fire", "Stray hits (sweeps, spear stabs) hurt allies", TARGETING,
             Items.FIRE_CHARGE, BotSettings::isFriendlyFireEnabled, BotSettings::setFriendlyFireEnabled);
         number("view-distance", "Target range", "How far bots look for enemies", TARGETING,
             Items.ENDER_EYE, BotSettings::getMaxTargetDistance, BotSettings::setMaxTargetDistance, 5.0, 128.0, 4.0);

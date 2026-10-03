@@ -122,6 +122,12 @@ public class BotTicker {
                 continue;
             }
 
+            // Mid-air with a water bucket and a long way to fall: nothing matters more this tick, so
+            // it is not left to the load governor either. A clutch a few ticks late is a death.
+            if (scriptify.bots.ai.WaterClutch.tick(bot, profile, server)) {
+                continue;
+            }
+
             boolean techniqueBusy = BotCombat.isTechniqueActive(botName);
 
             // Can this bot afford a decision this tick? Movement inputs and head angles hold
@@ -268,7 +274,7 @@ public class BotTicker {
      * out, keeps the gaze level and turns the corner gradually: the aim point swings smoothly
      * as the bearing changes, and the aim controller is rate limited on top of that.</p>
      */
-    private static void faceAlongPath(ServerPlayer bot, BotProfile profile,
+    static void faceAlongPath(ServerPlayer bot, BotProfile profile,
                                       Vec3 from, Vec3 to) {
         double dx = to.x - from.x;
         double dz = to.z - from.z;

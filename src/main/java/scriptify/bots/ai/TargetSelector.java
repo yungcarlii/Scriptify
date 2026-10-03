@@ -387,7 +387,11 @@ public final class TargetSelector {
 
             if (settings.isFactionsEnabled()) {
                 String botName = bot.getName().getString();
-                if (!settings.isFriendlyFireEnabled() && BotFaction.areAllies(botName, targetName)) {
+                // Never pick a teammate, friendly fire or not. Friendly fire is whether a stray
+                // blow lands on one - a sweep through a crowd, a stab that runs on past its mark -
+                // not licence to go after them. Reading it as the latter turned a 250-strong army
+                // on itself the moment the setting was switched on.
+                if (BotFaction.areAllies(botName, targetName)) {
                     return false;
                 }
                 if (BotFaction.areEnemies(botName, targetName)) {

@@ -172,6 +172,17 @@ public class BotManager {
 
 
     /** The roster spelling for a name, or the input when it is not a tracked bot. */
+    /**
+     * Whether this player is one of the backend's fake players, by class rather than by name.
+     *
+     * <p>For the hot paths that ask about every pair of players every tick (entity tracking, the
+     * locator bar). A class compare costs nothing; the roster lookup builds the name string first.</p>
+     */
+    public static boolean isFakePlayer(ServerPlayer player) {
+        Class<?> type = player.getClass();
+        return type != ServerPlayer.class && type.getName().startsWith("hero.bane.herobot");
+    }
+
     public static String canonical(String name) {
         if (bots.contains(name)) return name;
         for (String tracked : bots) {
@@ -201,6 +212,7 @@ public class BotManager {
         scriptify.bots.ai.Bridger.remove(name);
         scriptify.bots.ai.LoadGovernor.forget(name);
         scriptify.bots.ai.PitEscape.remove(name);
+        scriptify.bots.ai.WaterClutch.remove(name);
         BotActions.forget(name);
         rosterChanged();
     }

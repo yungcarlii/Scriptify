@@ -92,6 +92,43 @@ public final class SquadCoordinator {
      * How many other bots have already picked this target. Used by target selection so a
      * fresh bot prefers an unattended enemy over joining a five-on-one.
      */
+    /** Within this of a target, an attacker is in the front line around it. */
+    private static final double CONTACT_RADIUS = 3.2;
+
+    private static final Map<Integer, long[]> CONTACT_CACHE = new HashMap<>();
+    private static final ThreadLocal<List<Entity>> CONTACT_SCRATCH =
+        ThreadLocal.withInitial(() -> new ArrayList<>(32));
+
+    /**
+     * How many bots are already in the front line around a target - close enough to swing at it.
+     *
+     * <p>Counted, not inferred from who has picked it: a whole army can pick one man, but only so
+     * many bodies fit around him. Worked out once per target per tick and shared, since every bot
+     * in the crowd asks the same question about the same person.</p>
+     */
+    public static int contactCount(Entity target) {
+        if (!(target instanceof ServerPlayer player)) return 0;
+        long now = player.level().getGameTime();
+        long[] cached = CONTACT_CACHE.get(player.getId());
+        if (cached != null && cached[0] == now) return (int) cached[1];
+        List<Entity> near = CONTACT_SCRATCH.get();
+        BotIndex.collectNear(player, CONTACT_RADIUS, near);
+        int count = 0;
+        for (Entity e : near) {
+            if (e instanceof ServerPlayer other && scriptify.bots.bot.BotManager.isFakePlayer(other)
+                && Math.abs(other.getY() - player.getY()) < 2.0) {
+                count++;
+            }
+        }
+        if (cached == null) {
+            cached = new long[2];
+            CONTACT_CACHE.put(player.getId(), cached);
+        }
+        cached[0] = now;
+        cached[1] = count;
+        return count;
+    }
+
     public static int popularity(Entity target) {
         List<String> list = ENGAGEMENTS.get(target.getId());
         return list == null ? 0 : list.size();

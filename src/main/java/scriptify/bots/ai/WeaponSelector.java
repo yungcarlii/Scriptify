@@ -63,7 +63,41 @@ public final class WeaponSelector {
         if (item == Items.WOODEN_SWORD) return 4;
         if (item == Items.TRIDENT) return 9;
         if (item == Items.MACE) return 6;
-        return 0;
+        // Anything else - spears, and modded weapons - says what it does in its own attributes.
+        double bonus = attributeBonus(item, net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+        return Double.isNaN(bonus) ? 0 : 1.0 + bonus;
+    }
+
+    /**
+     * The flat bonus an item's default attributes add to one of the wielder's stats, or NaN.
+     * A sword-like item carries its damage and attack speed here; plain items carry nothing.
+     */
+    private static double attributeBonus(Item item,
+                                         net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute) {
+        var modifiers = item.components().get(net.minecraft.core.component.DataComponents.ATTRIBUTE_MODIFIERS);
+        if (modifiers == null) return Double.NaN;
+        double total = 0;
+        boolean found = false;
+        for (var entry : modifiers.modifiers()) {
+            if (entry.attribute().equals(attribute)
+                && entry.modifier().operation()
+                    == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE) {
+                total += entry.modifier().amount();
+                found = true;
+            }
+        }
+        return found ? total : Double.NaN;
+    }
+
+    /** A spear: a jab that runs on through everyone in a line, and a charge on the run. */
+    public static boolean isSpear(Item item) {
+        return item.components().has(net.minecraft.core.component.DataComponents.PIERCING_WEAPON);
+    }
+
+    /** How far a weapon reaches for a hit, or the ordinary three blocks for one with no range of its own. */
+    public static double reach(ItemStack stack) {
+        var range = stack.get(net.minecraft.core.component.DataComponents.ATTACK_RANGE);
+        return range != null ? range.maxRange() : 3.0;
     }
 
     /** Ticks between full-power hits (vanilla attack speed). */
@@ -72,6 +106,8 @@ public final class WeaponSelector {
         if (isAxe(item)) return 20.0;                          // attack speed 1.0
         if (isSword(item)) return 20.0 / 1.6;                  // attack speed 1.6
         if (item == Items.TRIDENT) return 20.0 / 1.1;
+        double speed = attributeBonus(item, net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_SPEED);
+        if (!Double.isNaN(speed)) return 20.0 / Math.max(0.25, 4.0 + speed);
         return 20.0 / 4.0;
     }
 
