@@ -296,6 +296,13 @@ public final class Maneuver {
                 double pocket = Math.min(reach * 0.95, profile.preferredGap());
                 boolean ready = cooldownProgress > 0.82f;
                 double wanted = ready ? pocket * 0.7 : pocket * 1.05;
+                // A spear is fought from its tip: hold the enemy out at the reach it gives you, and
+                // never walk in to arm's length, where it is a worse sword.
+                var held = bot.getMainHandItem();
+                if (WeaponSelector.isSpear(held.getItem())) {
+                    double tip = WeaponSelector.reach(held);
+                    wanted = ready ? tip - 1.0 : tip - 0.4;
+                }
 
                 Vec3 goal = pointAt(bot, target, wanted, st.laneAngle * 0.35);
                 yield new Order(goal, speed, Math.max(0.5, profile.strafeIntensity()), true);
