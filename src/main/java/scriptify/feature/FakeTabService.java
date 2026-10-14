@@ -169,6 +169,9 @@ public final class FakeTabService {
 	private final Random random = new Random();
 
 	private final List<GameProfile> roster = new ArrayList<>();
+	/** Players whose tab list holds the roster right now: only players in the vanilla dimensions (the recording). */
+	private final Set<UUID> showing = new HashSet<>();
+	private int placeCheck;
 	/** The number that was asked for. The population hovers near it rather than sitting on it. */
 	private int target;
 	/** Built lazily and reused for every recipient; dropped whenever the roster changes. */
@@ -256,8 +259,11 @@ public final class FakeTabService {
 				// rather than stranding entries a tab list mod will not know to take away.
 				player.connection.send(new ClientboundPlayerInfoRemovePacket(previous));
 			}
-			if (!suppressed && addPacket() != null) {
+			if (!suppressed && addPacket() != null && inEventWorld(player)) {
 				player.connection.send(addPacket());
+				this.showing.add(player.getUUID());
+			} else {
+				this.showing.remove(player.getUUID());
 			}
 		}
 
@@ -305,9 +311,47 @@ public final class FakeTabService {
 	 * chance for the client to end up without them.
 	 */
 	public void sendTo(ServerPlayer player) {
-		if (!suppressed() && addPacket() != null) {
+		if (!suppressed() && addPacket() != null && inEventWorld(player)) {
 			player.connection.send(addPacket());
+			this.showing.add(player.getUUID());
 		}
+	}
+
+	/**
+	 * The invented players belong to the recording, which happens in the vanilla dimensions (Hubify's
+	 * event world). In Hubify's hub and FFA the tab list shows the people who are really there.
+	 */
+	private static boolean inEventWorld(ServerPlayer player) {
+		return "minecraft".equals(player.level().dimension().identifier().getNamespace());
+	}
+
+	/** Once a second: players who walked into the event world get the roster, players who left lose it. */
+	private void followPlaces() {
+		if (++this.placeCheck < 20) {
+			return;
+		}
+		this.placeCheck = 0;
+		Set<UUID> online = new HashSet<>();
+		List<UUID> ids = null;
+		for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
+			online.add(player.getUUID());
+			boolean wanted = !suppressed() && inEventWorld(player);
+			boolean shown = this.showing.contains(player.getUUID());
+			if (wanted && !shown && addPacket() != null) {
+				player.connection.send(addPacket());
+				this.showing.add(player.getUUID());
+			} else if (!wanted && shown) {
+				if (ids == null) {
+					ids = new ArrayList<>(this.roster.size());
+					for (GameProfile profile : this.roster) {
+						ids.add(profile.id());
+					}
+				}
+				player.connection.send(new ClientboundPlayerInfoRemovePacket(ids));
+				this.showing.remove(player.getUUID());
+			}
+		}
+		this.showing.retainAll(online);
 	}
 
 	/**
@@ -322,6 +366,7 @@ public final class FakeTabService {
 		if (this.roster.isEmpty()) {
 			return;
 		}
+		followPlaces();
 		boolean churnDue = --this.churnCountdown <= 0;
 		boolean pingDue = --this.pingCountdown <= 0;
 		if (!churnDue && !pingDue) {
@@ -468,8 +513,10 @@ public final class FakeTabService {
 		ClientboundPlayerInfoRemovePacket removals = new ClientboundPlayerInfoRemovePacket(ids);
 		ClientboundPlayerInfoUpdatePacket additions = buildAddPacket(this.roster);
 		for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
-			player.connection.send(removals);
-			player.connection.send(additions);
+			if (this.showing.contains(player.getUUID())) {
+				player.connection.send(removals);
+				player.connection.send(additions);
+			}
 		}
 	}
 
@@ -537,7 +584,9 @@ public final class FakeTabService {
 			return;
 		}
 		for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
-			player.connection.send(packet);
+			if (this.showing.contains(player.getUUID())) {
+				player.connection.send(packet);
+			}
 		}
 	}
 

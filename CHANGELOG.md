@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.2
+
+- **The fake tab only in the vanilla dimensions.** The invented players are shown to players in
+  `minecraft:*` worlds (the recording) and taken out of the tab list of anyone who goes elsewhere
+  (Hubify's hub and FFA), checked once a second.
+
+## 2.0.1
+
+- **Staged deaths only in the vanilla dimensions.** Death control (healed, spectator, fake leave)
+  now applies only in `minecraft:*` worlds - the recording. In other mods' worlds (Hubify's FFA and
+  hub) a death is a real death again, so those mods can respawn the player their own way.
+- **Ranks no longer block commands meant for everyone.** The probe that decides which commands a
+  rank can filter asked with a source that had no permissions at all, which even a level-0 check
+  refuses. Commands every player may run (Hubify's `/hub`, `/ffa`, `/events`, `/kits`, any mod's
+  level-0 command) were treated as level 1 and the default rank got "Your rank cannot use /hub."
+  The probe now holds what a non-operator player actually holds.
+
 ## 2.0.0
 
 Everything since 1.2.0, as one release. The version number jumps because the mod did: Scriptify now

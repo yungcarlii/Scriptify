@@ -96,9 +96,12 @@ public final class RankService {
 			return List.of();
 		}
 		Set<String> ours = scriptify.compat.CommandConflicts.scriptifyRoots();
-		// A source with nothing granted, to ask each command whether it needs permission at all.
+		// A source holding exactly what a player who is not an operator holds (level 0), to ask each
+		// command whether it needs more than that. Not NO_PERMISSIONS: that refuses even a level-0
+		// check, so commands meant for everyone (Hubify's /hub, any mod's level-0 command) were
+		// counted as level 1 and the default rank was blocked from them.
 		CommandSourceStack bare = server.createCommandSourceStack()
-			.withPermission(net.minecraft.server.permissions.PermissionSet.NO_PERMISSIONS);
+			.withPermission(net.minecraft.server.permissions.LevelBasedPermissionSet.ALL);
 		List<String> roots = new java.util.ArrayList<>();
 		for (var node : server.getCommands().getDispatcher().getRoot().getChildren()) {
 			String name = node.getName();

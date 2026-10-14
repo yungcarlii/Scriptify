@@ -51,6 +51,12 @@ public final class DeathControlManager {
 		if (!this.config.get().deathControl.enabled) {
 			return true;
 		}
+		// Staged deaths belong to the recording, which happens in the vanilla dimensions (Hubify's
+		// event world). Anywhere else - Hubify's FFA and hub - a death stays real, so the FFA can
+		// respawn the player at its spawn with their kit.
+		if (!"minecraft".equals(player.level().dimension().identifier().getNamespace())) {
+			return true;
+		}
 		// A grave mod builds its grave from the death Scriptify cancels, so a staged death can leave a
 		// real grave holding a copy of an inventory the player never actually lost. Yielding lets the
 		// death happen normally and keeps the graves honest.
