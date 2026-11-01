@@ -285,6 +285,8 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/bots scenarios new\|point add\|point undo\|finish\|cancel` | Lay out a scene by walking it |
 | `/bots scenarios list\|remove\|removeall` | Manage scenes |
 | `/bots scenarios crowd\|assigncrowd` | Crowd scenes |
+| `/bots savescene <name> [radius]` | Save every bot around you — spot, gear, skin, faction, settings, path, follow, wander, recording — as a named scene (radius 48 by default) |
+| `/bots scene <name>` · `/bots scene <name> remove\|delete` · `/bots scenes` | Bring a scene back (bots already standing are skipped), take its bots out again, forget it, or list them |
 | `/bots massspawn <n>` · `/bots massaction <action>` | Do one thing to the whole roster |
 | `/bots kitall <kit>` · `/bots tphere` | Kit or gather every bot |
 | `/bots hide\|show\|defaultsettings` | NPC appearance and defaults |

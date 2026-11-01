@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.serialization.DataResult;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -82,8 +83,15 @@ public final class BotKits {
     public static Map<Integer, ItemStack> getKitItems(String kitName, ServerPlayer player) {
         Map<String, Object> data = kitsRaw.get(kitName.toLowerCase());
         if (data == null) return null;
+        return decode(data, player.registryAccess());
+    }
 
-        var registryOps = RegistryOps.create(NbtOps.INSTANCE, player.registryAccess());
+    /**
+     * Slot-to-NBT text back into stacks: the kit file's shape, which saved scenes reuse for a bot's
+     * own inventory. A stack that no longer decodes - an item from a mod since removed - is skipped.
+     */
+    public static Map<Integer, ItemStack> decode(Map<String, ?> data, HolderLookup.Provider registries) {
+        var registryOps = RegistryOps.create(NbtOps.INSTANCE, registries);
         Map<Integer, ItemStack> items = new HashMap<>();
 
         for (var entry : data.entrySet()) {
@@ -159,21 +167,25 @@ public final class BotKits {
     }
 
     private static boolean write(String key, ItemStack[] contents, ServerPlayer player) {
-        var registryOps = RegistryOps.create(NbtOps.INSTANCE, player.registryAccess());
-        Map<String, Object> kitItems = new LinkedHashMap<>();
+        kitsRaw.put(key, new LinkedHashMap<String, Object>(encode(contents, player.registryAccess())));
+        save();
+        return true;
+    }
+
+    /** Stacks as slot number to NBT text, empty slots left out; the reverse of {@link #decode}. */
+    public static Map<String, String> encode(ItemStack[] contents, HolderLookup.Provider registries) {
+        var registryOps = RegistryOps.create(NbtOps.INSTANCE, registries);
+        Map<String, String> encoded = new LinkedHashMap<>();
 
         for (int slot = 0; slot < contents.length && slot < SLOTS; slot++) {
             ItemStack stack = contents[slot];
             if (stack == null || stack.isEmpty()) continue;
             DataResult<Tag> result = ItemStack.CODEC.encodeStart(registryOps, stack);
             if (result.result().isPresent()) {
-                kitItems.put(String.valueOf(slot), result.result().get().toString());
+                encoded.put(String.valueOf(slot), result.result().get().toString());
             }
         }
-
-        kitsRaw.put(key, kitItems);
-        save();
-        return true;
+        return encoded;
     }
 
     private static boolean isEmpty(ItemStack[] contents) {

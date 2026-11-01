@@ -363,6 +363,21 @@ public class BotManager {
         }
     }
 
+    /**
+     * Brings a bot back exactly where and how it stood, through the same paced queue the startup
+     * restore drains. Saved scenes use it: the queue skips anyone already online, so restoring a
+     * scene that is still standing never makes a second copy of anybody.
+     */
+    // ponytail: one bot every RESTORE_SPACING_TICKS (2 a second); pace it like tickMassSpawn if big scenes feel slow
+    public static void queueRestore(BotData data) {
+        restoreQueue.add(data);
+    }
+
+    /** Whether bots are still waiting their turn in the restore queue. */
+    public static boolean isRestoring() {
+        return !restoreQueue.isEmpty();
+    }
+
     /** Drains the restore queue, one bot every {@link #RESTORE_SPACING_TICKS} ticks. */
     public static void tickRestore(MinecraftServer server) {
         tickMassSpawn(server);
@@ -377,7 +392,9 @@ public class BotManager {
         if (data == null || data.name == null) return;
 
         ServerPlayer existing = server.getPlayerList().getPlayer(data.name);
-        if (existing != null) {
+        // Alive, as spawnBot asks: removing a bot kills it, and unless the backend disconnects the dead
+        // it stays in the player list - which read as "already online" and a scene never came back.
+        if (existing != null && existing.isAlive()) {
             scriptify.bots.BotRuntime.LOGGER.debug("Skipping {}: already online", data.name);
             return;
         }
@@ -580,8 +597,23 @@ public class BotManager {
         if (BotSettings.get().isClearOnRemove()) {
             BotActions.execute(server, "clear " + name);
         }
-        BotActions.kill(name, server);
+        leave(server, name);
         return wasTracked;
+    }
+
+    /**
+     * Disconnects the bot, or kills it on a backend that has no disconnect.
+     *
+     * <p>Killing used to be the only way, and it only removes a bot while the backend's leave-on-death
+     * rule is on ({@code bot-leave-on-death}). With it off the bot respawns at world spawn, off the
+     * roster where nothing can reach it - so a removal left a bot standing, and a saved scene could
+     * never come back because its name was taken. Killing and then disconnecting the respawned bot
+     * left its old entity behind in the world, so the disconnect goes first and there is no death.</p>
+     */
+    private static void leave(MinecraftServer server, String name) {
+        if (!BotActions.execute(server, "player " + name + " disconnect")) {
+            BotActions.kill(name, server);
+        }
     }
 
     public static int removeAllBots(MinecraftServer server, CommandSourceStack source) {
@@ -589,7 +621,7 @@ public class BotManager {
         int removed = bots.size();
         for (String name : new ArrayList<>(bots)) {
             if (clear) BotActions.execute(server, "clear " + name);
-            BotActions.kill(name, server);
+            leave(server, name);
             BotPath.stopFollowing(name);
             forget(name);
         }

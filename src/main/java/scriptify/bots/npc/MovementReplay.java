@@ -63,11 +63,33 @@ public final class MovementReplay {
      * where it was recorded rather than wherever the bot happened to be standing.</p>
      */
     public static void start(ServerPlayer bot, List<Frame> frames) {
+        start(bot, frames, 0);
+    }
+
+    /**
+     * Picks a recording up part way through, for a bot brought back by a saved scene: starting it
+     * from the top would have every performer in the scene jump back to their first frame at once.
+     */
+    public static void start(ServerPlayer bot, List<Frame> frames, int cursor) {
         if (bot == null || frames == null || frames.size() < 2) {
             return;
         }
-        PLAYING.put(Names.key(bot.getName().getString()), new Playback(new ArrayList<>(frames)));
-        apply(bot, frames.get(0));
+        Playback playback = new Playback(new ArrayList<>(frames));
+        playback.cursor = Math.floorMod(cursor, frames.size());
+        PLAYING.put(Names.key(bot.getName().getString()), playback);
+        apply(bot, frames.get(playback.cursor));
+    }
+
+    /** The recording this bot is playing, or null when it is not playing one. */
+    public static List<Frame> frames(String botName) {
+        Playback playback = PLAYING.get(Names.key(botName));
+        return playback == null ? null : List.copyOf(playback.frames);
+    }
+
+    /** How far through its recording this bot is; zero when it is not playing one. */
+    public static int cursor(String botName) {
+        Playback playback = PLAYING.get(Names.key(botName));
+        return playback == null ? 0 : playback.cursor;
     }
 
     public static void stop(String botName) {

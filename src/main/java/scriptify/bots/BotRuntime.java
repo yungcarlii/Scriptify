@@ -143,6 +143,7 @@ public final class BotRuntime {
             scriptify.bots.npc.NpcApplier.init(server);
             scriptify.bots.npc.IdentityPool.init(server);
             scriptify.bots.scenario.ScenarioManager.init(server);
+            scriptify.bots.bot.BotScenes.init();
             // Last, so a consumer that reacts to the roster on bind sees a fully built one.
             scriptify.bots.api.SBotsApi.bind(server);
         });

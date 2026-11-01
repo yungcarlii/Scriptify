@@ -134,6 +134,8 @@ public final class Help {
 		entry(source, "/bots skin random", "Give a bot an appearance from the local pool");
 		entry(source, "/bots kit", "Save and hand out bot kits");
 		entry(source, "/bots faction", "Teams, hostility and group orders");
+		entry(source, "/bots savescene", "Save the bots around you as a scene: <name> [radius]");
+		entry(source, "/bots scene", "Bring a scene back - also remove, delete; /bots scenes lists");
 
 		section(source, "Scene");
 		entry(source, "/ondeath", "Staged deaths");

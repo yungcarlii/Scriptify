@@ -59,6 +59,8 @@ public class BotTicker {
         scriptify.bots.ai.Engagement.tick(server, serverTick);
 
         BotManager.tickRestore(server);
+        // Straight after the queue, so a bot a scene sent for gets its state on the tick it arrives.
+        BotScenes.tick(server);
         scriptify.bots.npc.NpcRegistry.tickSave(serverTick);
 
         // Staged behaviour runs from one sweep rather than the per-bot loop below, because a

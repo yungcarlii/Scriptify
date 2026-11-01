@@ -109,7 +109,7 @@ public class BotCommand {
             return builder.buildFuture();
         };
 
-    private static LiteralArgumentBuilder<CommandSourceStack> cmd(String literal, String description) {
+    static LiteralArgumentBuilder<CommandSourceStack> cmd(String literal, String description) {
         return Commands.literal(literal)
             .executes(ctx -> {
                 ctx.getSource().sendSuccess(() -> Component.literal("§7[Tip] §a" + description), false);
@@ -168,6 +168,11 @@ public class BotCommand {
 
             // ========== SCENARIOS ==========
             .then(ScenarioCommand.node())
+
+            // ========== SAVED SCENES ==========
+            .then(SceneCommand.saveNode())
+            .then(SceneCommand.sceneNode())
+            .then(SceneCommand.listNode())
 
             // ========== SETTINGS ==========
             .then(buildSettings())
