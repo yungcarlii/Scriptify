@@ -35,6 +35,7 @@ import scriptify.feature.FeatureManager;
 import scriptify.permission.PermissionService;
 import scriptify.runtime.ScriptifyRuntime;
 import scriptify.ui.BackupMenu;
+import scriptify.ui.DurabilityMenu;
 import scriptify.ui.Help;
 import scriptify.ui.KitsMenu;
 import scriptify.ui.MainMenu;
@@ -888,18 +889,15 @@ public final class ScriptifyCommands {
 	private static void registerInventoryTools(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(literal("durability")
 			.requires(source -> has(source, PermissionService.INVENTORY))
-			.then(literal("max").executes(context -> {
-				ServerPlayer player = context.getSource().getPlayerOrException();
-				int changed = ScriptifyRuntime.features().repairAll(player);
-				context.getSource().sendSuccess(() -> Msg.line("Repaired " + changed + " item(s)."), false);
-				return 1;
-			}))
-			.then(literal("random").executes(context -> {
-				ServerPlayer player = context.getSource().getPlayerOrException();
-				int changed = ScriptifyRuntime.features().randomiseDurability(player);
-				context.getSource().sendSuccess(() -> Msg.line("Randomised " + changed + " item(s)."), false);
-				return 1;
-			})));
+			.executes(context -> {
+				try {
+					DurabilityMenu.open(ScriptifyBootstrap.context(), context.getSource().getPlayerOrException());
+					return 1;
+				} catch (CommandSyntaxException exception) {
+					context.getSource().sendFailure(Msg.failure("Only players can open the durability menu."));
+					return 0;
+				}
+			}));
 
 		dispatcher.register(literal("restock")
 			.requires(source -> has(source, PermissionService.INVENTORY))

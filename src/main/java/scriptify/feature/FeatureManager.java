@@ -42,6 +42,8 @@ public final class FeatureManager {
 	public static final int FOREVER = -1;
 	/** Timers tick down, and protected armour repairs, once a second. */
 	private static final int SECOND_IN_TICKS = 20;
+	/** How far, in percentage points, one worn item may land from the chosen wear level. */
+	static final int WEAR_SPREAD = 10;
 	private static final EquipmentSlot[] ARMOR_SLOTS = {
 		EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET,
 	};
@@ -463,10 +465,28 @@ public final class FeatureManager {
 		return changed;
 	}
 
-	/** Randomises durability on every damageable item — instant "been through a war" gear for a scene. */
-	public int randomiseDurability(ServerPlayer player) {
+	/**
+	 * Wears every damageable item down to roughly {@code percent} of its durability left — instant "been
+	 * through a war" gear for a scene. 100 leaves it untouched, 1 leaves it about to break.
+	 */
+	public int wearDurability(ServerPlayer player, int percent) {
 		return forEachDamageable(player, stack ->
-			stack.setDamageValue(this.random.nextInt(Math.max(1, stack.getMaxDamage()))));
+			stack.setDamageValue(wornDamage(stack.getMaxDamage(), percent, this.random)));
+	}
+
+	/**
+	 * Damage value for one item worn to about {@code percent} left.
+	 *
+	 * <p>Each item lands up to {@link #WEAR_SPREAD} points either side of the target, so a set reads as
+	 * having been through the same fight rather than stamped out at one number. The scatter narrows at
+	 * the ends so 100 really is pristine and 1 really is on its last legs, and nothing ever breaks.
+	 */
+	static int wornDamage(int maxDamage, int percent, Random random) {
+		int target = Math.clamp(percent, 1, 100);
+		int spread = Math.min(WEAR_SPREAD, Math.min(target - 1, 100 - target));
+		int left = target + random.nextInt(spread * 2 + 1) - spread;
+		int remaining = Math.max(1, (int) Math.round(maxDamage * left / 100.0D));
+		return Math.max(0, maxDamage - remaining);
 	}
 
 	private int forEachDamageable(ServerPlayer player, java.util.function.Consumer<ItemStack> action) {

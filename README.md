@@ -336,7 +336,7 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/copyinv <player>` | Give them an exact copy of your inventory |
 | `/clearground [radius]` | Remove dropped items from the ground |
 | `/restock` | Refill every stack |
-| `/durability max\|random` | Repair or scuff your gear |
+| `/durability` | Menu: repair, or wear gear down (heavy / moderate / light / exact %) |
 
 ### Authoring
 

@@ -213,12 +213,10 @@ public final class MainMenu {
 			}).build());
 
 		gui.setSlot(29, Menus.button(Items.IRON_PICKAXE, "Durability", ChatFormatting.YELLOW,
-				"Left click: repair everything",
-				"Right click: randomise (battle-worn gear)")
-			.setCallback((index, type, action, ignored) -> {
-				int changed = type.isRight ? features.randomiseDurability(player) : features.repairAll(player);
-				Menus.notify(player, (type.isRight ? "Randomised " : "Repaired ") + changed + " item(s).");
-			}).build());
+				"Repair everything, or wear it down",
+				"for a battle-worn look.",
+				"Also available as /durability")
+			.setCallback((index, type, action, ignored) -> DurabilityMenu.open(context, player)).build());
 
 		gui.setSlot(30, Menus.button(Items.HOPPER, "Restock", ChatFormatting.YELLOW,
 				"Top every stackable item back up to a full stack.",

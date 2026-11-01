@@ -115,7 +115,7 @@ public final class Help {
 		entry(source, "/invsee", "View a player's inventory");
 		entry(source, "/ec", "View a player's ender chest");
 		entry(source, "/restock", "Refill every stack");
-		entry(source, "/durability max", "Repair everything");
+		entry(source, "/durability", "Repair or wear down your gear");
 
 		section(source, "Authoring");
 		entry(source, "/item name", "Rename the held item — also lore, enchant, glint");
