@@ -39,9 +39,10 @@ stating regardless.
 
 **A discrepancy worth knowing about.** PvP Bot's Modrinth page displays *All Rights Reserved*, which
 is Modrinth's default when a project's licence field is left unset. The `LICENSE` file in the source
-repository is the Unlicense, and it is the Unlicense on `main`, on `master` and on the `v0.0.15`
-release tag. The source repository is what was forked, and its LICENSE file is what governs that
-source.
+repository has been the Unlicense since the repository's first commit and is unchanged on `v0.0.15`
+and `dev`:
+https://github.com/Stepan1411/pvp-bot-fabric/blob/9ffaf3abba824dabf590785b458da2b873a72f8c/LICENSE.
+The source repository is what was forked, and its LICENSE file is what governs that source.
 
 ```
 This is free and unencumbered software released into the public domain.
@@ -72,8 +73,8 @@ without a resource pack, and it is the reason the mod works at all.
 It is included by Fabric's Jar-in-Jar mechanism, which links against it rather than incorporating it.
 Under LGPL-3.0 section 4 that is permitted for a work under a different licence, provided the library
 is identified, its licence is supplied, and the user is able to replace it with a modified version.
-All three hold: it is named here, LGPL-3.0 is linked above, and the nested jar can be swapped for
-another build of sgui without touching Scriptify.
+All three hold: it is named here, the LGPL-3.0 text ships inside the nested jar as `LICENSE_sgui`,
+and the nested jar can be swapped for another build of sgui without touching Scriptify.
 
 Scriptify's own MIT licence does **not** extend to sgui. sgui remains LGPL-3.0.
 
@@ -138,8 +139,8 @@ them, and because the techniques are not obvious.
 
 | Project | Author | Licence | What was learned |
 | --- | --- | --- | --- |
-| [Vanish](https://github.com/DrexHD/Vanish) | DrexHD | — | How to remove a player from the world completely rather than relying on the invisibility effect |
-| [immortality-mc-mod](https://github.com/Thesupereevee1/immortality-mc-mod) | Thesupereevee1 | — | Letting hits land and knock back while cancelling the death. Scriptify defaults global immortality to off, which that mod does not |
+| [Vanish](https://github.com/DrexHD/Vanish) | DrexHD | MIT | How to remove a player from the world completely rather than relying on the invisibility effect |
+| [immortality-mc-mod](https://github.com/Thesupereevee1/immortality-mc-mod) | Thesupereevee1 | CC0-1.0 | Letting hits land and knock back while cancelling the death. Scriptify defaults global immortality to off, which that mod does not |
 
 ---
 
@@ -164,7 +165,7 @@ session except a player's own original skin, which is stored so it can be given 
 | --- | --- |
 | Mojang session and profile API | Verifying accounts and fetching signed skin textures |
 | [Ely.by](https://ely.by) | A second skin source when Mojang returns nothing |
-| [NameMC](https://namemc.com) | Sampling real username shapes for the nickname generator |
+| [NameMC](https://namemc.com) | Random skins: reads the public random-skins page; the textures themselves are served by Mojang's texture host and nothing is bundled |
 
 ---
 

@@ -587,8 +587,8 @@ shipped inside the jar. In short:
 | [PvP Bot](https://github.com/Stepan1411/pvp-bot-fabric) | Stepan1411 | Unlicense (public domain) | **Forked.** Everything under `/bots` descends from it, substantially rewritten and extended. Its Modrinth page shows ARR, which is Modrinth's default for an unset field; the repository's `LICENSE` is the Unlicense. |
 | [sgui](https://github.com/Patbox/sgui) | Patbox | LGPL-3.0 | **Bundled** in the jar. Every menu is an sgui screen. Remains LGPL-3.0; Scriptify's MIT does not cover it. |
 | [SkinRestorer](https://github.com/Suiranoil/SkinRestorer) | Lionarius | MIT | **Derived.** The sequence that rebuilds a player after a name or skin change is adapted from it, as is the fallback to Mojang's public API and the use of Ely.by. |
-| [Vanish](https://github.com/DrexHD/Vanish) | DrexHD | — | **Credited.** How to remove a player from the world properly. No code. |
-| [immortality-mc-mod](https://github.com/Thesupereevee1/immortality-mc-mod) | Thesupereevee1 | — | **Credited.** Letting hits land while cancelling the death. No code. |
+| [Vanish](https://github.com/DrexHD/Vanish) | DrexHD | MIT | **Credited.** How to remove a player from the world properly. No code. |
+| [immortality-mc-mod](https://github.com/Thesupereevee1/immortality-mc-mod) | Thesupereevee1 | CC0-1.0 | **Credited.** Letting hits land while cancelling the death. No code. |
 
 Minecraft, Fabric and HeroBot are depended on and never redistributed. Mojang, Ely.by and NameMC are
 queried over the network; no code of theirs is present.
