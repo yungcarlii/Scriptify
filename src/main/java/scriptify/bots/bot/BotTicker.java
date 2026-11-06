@@ -10,6 +10,8 @@ import scriptify.bots.ai.LoadGovernor;
 import scriptify.bots.ai.SquadCoordinator;
 import scriptify.bots.ai.Vision;
 
+import java.util.List;
+
 /**
  * The server tick driver.
  *
@@ -61,6 +63,7 @@ public class BotTicker {
         BotManager.tickRestore(server);
         // Straight after the queue, so a bot a scene sent for gets its state on the tick it arrives.
         BotScenes.tick(server);
+        PathPopulator.tick(server);
         scriptify.bots.npc.NpcRegistry.tickSave(serverTick);
 
         // Staged behaviour runs from one sweep rather than the per-bot loop below, because a
@@ -272,10 +275,18 @@ public class BotTicker {
             var rng = new java.util.SplittableRandom(botName.hashCode() * 31L + follower.currentPoint);
             double angle = rng.nextDouble() * Math.PI * 2;
             double radius = WANDER * Math.sqrt(rng.nextDouble());
+            // From where the bot stands too, whenever it could walk straight to the waypoint itself. A
+            // spot that is sound from the waypoint can still lie across the edge of a walkway from here,
+            // and the bot cut that corner and fell off the build.
+            Vec3 here = bot.position();
+            boolean direct = BotNavigation.straightWalkable(bot.level(), here, point);
             // Shrink toward the waypoint until the spot is somewhere it can safely walk to.
             for (double r = radius; r > 0.5 && follower.wanderPoint == null; r *= 0.5) {
                 Vec3 spot = new Vec3(point.x + Math.cos(angle) * r, point.y, point.z + Math.sin(angle) * r);
-                if (BotNavigation.straightWalkable(bot.level(), point, spot)) follower.wanderPoint = spot;
+                if (BotNavigation.straightWalkable(bot.level(), point, spot)
+                    && (!direct || BotNavigation.straightWalkable(bot.level(), here, spot))) {
+                    follower.wanderPoint = spot;
+                }
             }
         }
         if (follower.wanderPoint == null) return point;
@@ -286,6 +297,8 @@ public class BotTicker {
     }
 
     private static void tickPathFollowing(ServerPlayer bot, String botName, BotProfile profile) {
+        BotPath.PathFollower follower = BotPath.getFollower(botName);
+        if (follower == null) return;
         boolean shouldAttack = BotPath.shouldAttack(botName);
         var target = BotCombat.getTarget(botName);
         boolean hasTarget = target != null && target.isAlive();
@@ -294,6 +307,8 @@ public class BotTicker {
             if (!BotPath.isInCombat(botName)) {
                 BotPath.startCombat(botName, BotPath.getNextPoint(botName));
             }
+            // Fighting on one spot is not being stuck.
+            follower.stuckAnchor = null;
             return;
         }
 
@@ -301,10 +316,16 @@ public class BotTicker {
             BotPath.endCombat(botName);
         }
 
+        long now = bot.level().getGameTime();
+        if (lookingAround(bot, botName, follower, profile, now)) return;
+
         Vec3 botPos = new Vec3(bot.getX(), bot.getY(), bot.getZ());
         Vec3 resume = BotPath.getPausedPoint(botName);
         if (resume != null) {
             if (reachedPoint(botPos, resume)) {
+                BotPath.clearPausedPoint(botName);
+            } else if (stuck(follower, botPos, now)) {
+                // Wherever the fight left it, the route itself is the thing to get back to.
                 BotPath.clearPausedPoint(botName);
             } else {
                 faceAlongPath(bot, profile, botPos, resume);
@@ -313,15 +334,172 @@ public class BotTicker {
             return;
         }
 
-        Vec3 next = BotPath.getNextPoint(botName);
-        if (next == null) return;
-        next = wanderTarget(bot, botName, next);
+        Vec3 point = BotPath.getNextPoint(botName);
+        if (point == null) return;
+        Vec3 next = wanderTarget(bot, botName, point);
         if (reachedPoint(botPos, next)) {
             BotPath.advanceToNextPoint(botName);
-        } else {
-            faceAlongPath(bot, profile, botPos, next);
-            BotNavigation.moveTowardPosition(bot, next, 1.0);
+            follower.stuckAnchor = null;
+            follower.detour = null;
+            return;
         }
+        if (stuck(follower, botPos, now)) {
+            rescue(bot, botName, follower, point, now);
+        }
+        Vec3 aim = follower.detour != null ? detourStep(bot, follower, botPos) : null;
+        if (aim == null) aim = next;
+        faceAlongPath(bot, profile, botPos, aim);
+        BotNavigation.moveTowardPosition(bot, aim, 1.0);
+    }
+
+    /**
+     * Some bots on a mixed route stop now and then, wherever they happen to be, and look about them.
+     *
+     * @return true while the bot is stood looking, and this tick's walking should not happen
+     */
+    private static boolean lookingAround(ServerPlayer bot, String botName, BotPath.PathFollower follower,
+                                         BotProfile profile, long now) {
+        if (now < follower.pausedUntil) {
+            scriptify.bots.scenario.Roamer.idleLook(bot, profile, follower.glance);
+            scriptify.bots.scenario.Roamer.halt(bot);
+            follower.stuckAnchor = null;
+            return true;
+        }
+        double chance = BotPath.pauseChanceOf(botName);
+        if (chance <= 0 || !bot.onGround() || !scriptify.bots.ai.Rng.chance(profile.rng(), chance)) {
+            return false;
+        }
+        follower.pausedUntil = now + scriptify.bots.ai.Rng.range(profile.rng(), 40, 160);
+        if (follower.glance == null) follower.glance = new scriptify.bots.scenario.Roamer.State();
+        follower.glance.glanceTicks = 0;
+        scriptify.bots.scenario.Roamer.halt(bot);
+        return true;
+    }
+
+    /** Longer than this inside one 3x3 patch while trying to walk somewhere, and a bot is stuck. */
+    private static final int STUCK_TICKS = 80;
+
+    /** Half the side of that patch. */
+    private static final double STUCK_SPAN = 1.5;
+
+    /**
+     * How much harder than everyday steering the search looks for a way, as a multiple of the
+     * per-search node budget. A bot that dropped off a walkway needs the stairs, which may be a
+     * street away; the everyday budget is sized for stepping round a pillar.
+     */
+    private static final int RESCUE_BUDGET_FACTOR = 6;
+
+    /** Rescues allowed without the bot leaving its patch before it is put back on the route. */
+    private static final int MAX_RESCUES = 3;
+
+    /** A point closer than this is where the bot already is, not somewhere to rejoin the route. */
+    private static final double REJOIN_MIN = 3.0;
+
+    /** Tick of the last rescue search. One a tick across the server, because each is a big one. */
+    private static long lastRescueTick = -1;
+
+    /** Whether the bot has spent too long inside one 3x3 patch. Starts a fresh watch whenever it leaves. */
+    private static boolean stuck(BotPath.PathFollower follower, Vec3 here, long now) {
+        Vec3 anchor = follower.stuckAnchor;
+        if (anchor == null || Math.abs(here.x - anchor.x) > STUCK_SPAN
+            || Math.abs(here.z - anchor.z) > STUCK_SPAN || Math.abs(here.y - anchor.y) > STUCK_SPAN) {
+            follower.stuckAnchor = here;
+            follower.stuckSince = now;
+            follower.rescues = 0;
+            return false;
+        }
+        return now - follower.stuckSince >= STUCK_TICKS;
+    }
+
+    /**
+     * Gets a stuck bot moving again, Baritone-style: a proper search for a way to the waypoint from
+     * wherever it has ended up, followed step by step.
+     *
+     * <p>Everyday steering only searches a little and otherwise walks straight at the point, which is
+     * exactly what keeps a bot that fell off a build pressed against the wall under its waypoint. With
+     * no way there inside the search, it picks the route up again at the nearest point on its own
+     * level, the way somebody who missed the stairs would; with nothing at its level either, it is put
+     * back on the route.</p>
+     */
+    private static void rescue(ServerPlayer bot, String botName, BotPath.PathFollower follower,
+                               Vec3 point, long now) {
+        // Somebody else's turn this tick: asked again on the next one, since the bot is still stuck.
+        if (lastRescueTick == now || !scriptify.bots.ai.Pathfinder.tryReserve()) return;
+        lastRescueTick = now;
+        follower.stuckAnchor = bot.position();
+        follower.stuckSince = now;
+        // The offset spot is what walked it off the edge; the route point itself is the safe target.
+        follower.wanderIndex = follower.currentPoint;
+        follower.wanderPoint = null;
+
+        // A route the search finds but the bot cannot walk (a door, a gap to jump) would be searched
+        // for again and again; a few tries without ever leaving the patch is the end of trying.
+        boolean outOfTries = ++follower.rescues > MAX_RESCUES;
+        if (!outOfTries) {
+            var result = scriptify.bots.ai.Pathfinder.find(bot.level(), bot.blockPosition(),
+                net.minecraft.core.BlockPos.containing(point),
+                BotSettings.get().getPathNodeBudget() * RESCUE_BUDGET_FACTOR, 1.5);
+            if (result.complete()) {
+                follower.detour = result.waypoints();
+                follower.detourIndex = 0;
+                return;
+            }
+        }
+        follower.detour = null;
+        int rejoin = outOfTries ? -1 : nearestPointAtLevel(follower, bot.position());
+        if (rejoin >= 0 && rejoin != follower.currentPoint) {
+            BotPath.setBotPathIndex(botName, rejoin);
+            return;
+        }
+        follower.rescues = 0;
+        // ponytail: walled in with no way to the route inside the search budget - put it back on the
+        // route rather than leave it pressing a wall; a wider search is the upgrade if this shows on camera
+        bot.absSnapTo(point.x, point.y, point.z, bot.getYRot(), bot.getXRot());
+        bot.setDeltaMovement(Vec3.ZERO);
+    }
+
+    /** The route point nearest the bot that runs at its own height, or -1 when there is none. */
+    private static int nearestPointAtLevel(BotPath.PathFollower follower, Vec3 here) {
+        BotPath.PathData route = BotPath.getPath(follower.pathName);
+        if (route == null) return -1;
+        int best = -1;
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < route.points.size(); i++) {
+            Vec3 p = route.points.get(i);
+            if (Math.abs(p.y - here.y) > STUCK_SPAN) continue;
+            double distance = p.distanceToSqr(here);
+            // Not the one it is stood on: rejoining there just walks it back into the same wall.
+            if (distance < REJOIN_MIN * REJOIN_MIN) continue;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The next step of a rescue route: the furthest of the next few that is a straight walk away, so
+     * the bot cuts the corners of a block-by-block route the way a player would. Null once it is done.
+     */
+    private static Vec3 detourStep(ServerPlayer bot, BotPath.PathFollower follower, Vec3 here) {
+        List<Vec3> route = follower.detour;
+        int last = Math.min(route.size() - 1, follower.detourIndex + 6);
+        for (int i = last; i > follower.detourIndex; i--) {
+            if (BotNavigation.straightWalkable(bot.level(), here, route.get(i))) {
+                follower.detourIndex = i;
+                break;
+            }
+        }
+        Vec3 step = route.get(follower.detourIndex);
+        if (Math.hypot(step.x - here.x, step.z - here.z) < 0.7 && Math.abs(step.y - here.y) < 1.2) {
+            if (++follower.detourIndex >= route.size()) {
+                follower.detour = null;
+                return null;
+            }
+            step = route.get(follower.detourIndex);
+        }
+        return step;
     }
 
     /**

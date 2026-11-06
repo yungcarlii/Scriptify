@@ -208,6 +208,7 @@ public final class BotRuntime {
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             scriptify.bots.command.BotCommand.cancelPendingTeleports();
+            scriptify.bots.bot.PathPopulator.clear();
             // How far along its path each bot had got. Written here rather than on every point
             // reached, which would be a disk write per bot per few seconds for a number that only
             // matters once - when the server comes back up.

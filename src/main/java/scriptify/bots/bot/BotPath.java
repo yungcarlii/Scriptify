@@ -28,13 +28,22 @@ public class BotPath {
     private static final Map<String, PathFollower> followers = new HashMap<>();
     private static final Set<String> visiblePaths = new HashSet<>();
     
+    /**
+     * Every bot on the route walks its own way - some walk, some sprint, some sprint-jump, and some
+     * stop now and then to look around. The default: one gait for a whole crowd is the most
+     * artificial thing a route full of bots can do.
+     */
+    public static final String MIXED = "mixed";
+
     public static class PathData {
         public String name;
         public List<Vec3> points = new ArrayList<>();
         public boolean loop = false;
         public boolean attack = true;
-        public String walkType = "bhop";
-        
+        public String walkType = MIXED;
+        /** Absent (0) in files written before mixed gaits; see {@link #load}. */
+        public int version = 1;
+
         public PathData(String name) {
             this.name = name;
         }
@@ -59,6 +68,20 @@ public class BotPath {
         transient int wanderIndex = -1;
         transient Vec3 wanderPoint;
         transient int wanderTicks;
+        /** How this bot walks a mixed route and how often it stops there; see {@link #walkTypeOf}. */
+        transient String gait;
+        transient double pauseChance;
+        /** Standing to look around until this game tick, and where its head is drifting meanwhile. */
+        transient long pausedUntil;
+        transient scriptify.bots.scenario.Roamer.State glance;
+        /** Where the bot has been loitering and since when: too long in one 3x3 patch is stuck. */
+        transient Vec3 stuckAnchor;
+        transient long stuckSince;
+        /** Rescues tried without the bot ever leaving the patch it was stuck in. */
+        transient int rescues;
+        /** A way round worked out after being stuck, and how far along it the bot is. */
+        transient List<Vec3> detour;
+        transient int detourIndex;
 
         public PathFollower(String pathName) {
             this.pathName = pathName;
@@ -247,12 +270,49 @@ public class BotPath {
         follower.currentPoint++;
         if (follower.currentPoint >= path.points.size()) {
             follower.currentPoint = path.loop ? 0 : path.points.size() - 1;
-        }
-    }
+        }    }
     
     
     public static boolean isFollowing(String botName) {
         return followers.containsKey(botName);
+    }
+
+    /**
+     * How this bot walks its route: the route's walk type, or on a mixed route the bot's own gait.
+     * Null when it is not on a route.
+     */
+    public static String walkTypeOf(String botName) {
+        PathFollower follower = followers.get(botName);
+        PathData path = follower == null ? null : paths.get(follower.pathName);
+        if (path == null) return null;
+        if (!MIXED.equals(path.walkType)) return path.walkType;
+        if (follower.gait == null) pickHabits(botName, follower);
+        return follower.gait;
+    }
+
+    /** Per-tick chance this bot stops to look around; zero off a mixed route, and for a third of bots. */
+    public static double pauseChanceOf(String botName) {
+        PathFollower follower = followers.get(botName);
+        PathData path = follower == null ? null : paths.get(follower.pathName);
+        if (path == null || !MIXED.equals(path.walkType)) return 0;
+        if (follower.gait == null) pickHabits(botName, follower);
+        return follower.pauseChance;
+    }
+
+    /**
+     * A bot's walking habits, fixed by its name so it keeps them across routes and restarts.
+     *
+     * <p>Roughly a third each walk, sprint and sprint-jump. A third never stop; the rest stop on
+     * average every twenty seconds to a minute of walking.</p>
+     */
+    static void pickHabits(String botName, PathFollower follower) {
+        // Splittable, not Random: Random's first number barely moves between neighbouring seeds, so
+        // Walker1 and Walker2 would share a gait.
+        var rng = new java.util.SplittableRandom(
+            scriptify.bots.utils.Names.key(botName).hashCode() * 0x9E3779B97F4A7C15L);
+        int roll = rng.nextInt(100);
+        follower.gait = roll < 35 ? "walk" : roll < 70 ? "sprint" : "bhop";
+        follower.pauseChance = rng.nextInt(3) == 0 ? 0 : 1.0 / (400 + rng.nextInt(800));
     }
     
     
@@ -273,8 +333,7 @@ public class BotPath {
             return false;
         }
         
-        follower.currentPoint = index;
-        return true;
+        follower.currentPoint = index;        return true;
     }
     
     
@@ -472,6 +531,22 @@ public class BotPath {
     }
     
     
+    /**
+     * Brings a route saved by an older build up to date, so routes bots were already walking keep
+     * working after an update and pick up what is new.
+     *
+     * <p>Routes from before mixed gaits say "bhop" only because that was the default, which sent every
+     * bot on every route sprint-jumping in step; the oldest files have no walk type at all. Both turn
+     * mixed once. A route set to bhop by hand from now on is saved with a version and left alone.</p>
+     */
+    static void upgrade(PathData path) {
+        if (path.version < 1 && (path.walkType == null || "bhop".equals(path.walkType))) {
+            path.walkType = MIXED;
+        }
+        if (path.points == null) path.points = new ArrayList<>();
+        path.version = 1;
+    }
+
     private static void load() {
         if (configPath == null || !Files.exists(configPath)) {
             return;
@@ -482,6 +557,7 @@ public class BotPath {
                 new TypeToken<Map<String, PathData>>(){}.getType());
             
             if (loadedPaths != null) {
+                loadedPaths.values().forEach(BotPath::upgrade);
                 paths.clear();
                 paths.putAll(loadedPaths);
             }

@@ -278,6 +278,8 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/bots bot-management path add-point\|remove-point\|clear\|delete` | Edit a path by hand |
 | `/bots bot-management path loop\|show\|info\|list\|walk-type` | Path properties |
 | `/bots bot-management path distribute\|start-near\|stop\|stop-all` | Put bots on a path |
+| `/bots bot-management path populate <path> <count> [seconds]` | Spawn bots at the start of a path one by one, a loosely random gap apart (4 s by default); `stop-all` cancels the rest |
+| `/bots bot-management path walk-type <path> mixed\|walk\|sprint\|bhop` | `mixed` (the default): each bot walks, sprints or sprint-jumps in its own way and some stop now and then to look around. A bot boxed into one 3×3 patch for 4 s searches a route out and rejoins the path |
 | `/bots faction create\|delete\|list\|info` | Factions |
 | `/bots faction add\|remove\|add-near\|add-all` | Faction membership |
 | `/bots faction hostile\|attack\|tp\|give` | What a faction does |

@@ -260,6 +260,14 @@ public class BotCommand {
                             .suggests(PATH_SUGGESTIONS)
                             .then(Commands.argument("radius", DoubleArgumentType.doubleArg(1))
                                 .executes(BotCommand::pathStartNear))))
+                    .then(cmd("populate", "Spawn bots onto a path one by one: <path> <count> [seconds between]")
+                        .then(Commands.argument("path", StringArgumentType.word())
+                            .suggests(PATH_SUGGESTIONS)
+                            .then(Commands.argument("count", IntegerArgumentType.integer(1, 10000))
+                                .executes(ctx -> pathPopulate(ctx, POPULATE_INTERVAL_SECONDS))
+                                .then(Commands.argument("seconds", DoubleArgumentType.doubleArg(0.25, 600))
+                                    .executes(ctx -> pathPopulate(ctx,
+                                        DoubleArgumentType.getDouble(ctx, "seconds")))))))
                     .then(cmd("stop-all", "Stop all bots on path")
                         .then(Commands.argument("path", StringArgumentType.word())
                             .suggests(PATH_SUGGESTIONS)
@@ -269,6 +277,7 @@ public class BotCommand {
                             .suggests(PATH_SUGGESTIONS)
                             .then(Commands.argument("type", StringArgumentType.word())
                                 .suggests((ctx, builder) -> {
+                                    builder.suggest(BotPath.MIXED);
                                     builder.suggest("bhop");
                                     builder.suggest("sprint");
                                     builder.suggest("walk");
@@ -974,8 +983,9 @@ public class BotCommand {
         var source = ctx.getSource();
         String name = StringArgumentType.getString(ctx, "name");
         String type = StringArgumentType.getString(ctx, "type");
-        if (!type.equals("bhop") && !type.equals("sprint") && !type.equals("walk")) {
-            source.sendFailure(Component.literal("Invalid walk type. Use: bhop, sprint, or walk"));
+        if (!type.equals(BotPath.MIXED) && !type.equals("bhop") && !type.equals("sprint")
+            && !type.equals("walk")) {
+            source.sendFailure(Component.literal("Invalid walk type. Use: mixed, bhop, sprint, or walk"));
             return 0;
         }
         if (BotPath.setWalkType(name, type)) {
@@ -1113,6 +1123,36 @@ public class BotCommand {
         }
     }
 
+    /** Gap between walkers when the populate command is not given one: a steady trickle of people. */
+    private static final double POPULATE_INTERVAL_SECONDS = 4.0;
+
+    /**
+     * Spawns walkers onto a route one at a time, each at its start, with a loosely randomised gap
+     * between them - the way a street fills, rather than a batch setting off in step.
+     */
+    private static int pathPopulate(CommandContext<CommandSourceStack> ctx, double seconds) {
+        var source = ctx.getSource();
+        String pathName = StringArgumentType.getString(ctx, "path");
+        int count = IntegerArgumentType.getInteger(ctx, "count");
+        var path = BotPath.getPath(pathName);
+        if (path == null || path.points.isEmpty()) {
+            source.sendFailure(Component.literal("Path '" + pathName + "' not found or has no points"));
+            return 0;
+        }
+        int maxAllowed = BotSettings.get().getMaxMassSpawn();
+        if (count > maxAllowed) {
+            source.sendFailure(Component.literal("Cannot spawn more than " + maxAllowed
+                + " bots at once. Use /bots settings max-mass-spawn to increase the limit."));
+            return 0;
+        }
+        int intervalTicks = (int) Math.round(seconds * 20);
+        scriptify.bots.bot.PathPopulator.start(pathName, count, intervalTicks, source);
+        source.sendSuccess(() -> Component.literal(String.format(java.util.Locale.US,
+            "Sending %d bots down path '%s', about one every %.1fs. /bots bot-management path stop-all %s stops it.",
+            count, pathName, seconds, pathName)), true);
+        return count;
+    }
+
     private static int pathStopAll(CommandContext<CommandSourceStack> ctx) {
         var source = ctx.getSource();
         String pathName = StringArgumentType.getString(ctx, "path");
@@ -1129,10 +1169,17 @@ public class BotCommand {
                 }
             }
         }
+        int unspawned = scriptify.bots.bot.PathPopulator.cancel(pathName);
+        if (unspawned > 0) {
+            source.sendSuccess(() -> Component.literal("Cancelled " + unspawned
+                + " bots still waiting to join path '" + pathName + "'"), true);
+        }
         if (stopped > 0) {
             int finalStopped = stopped;
             source.sendSuccess(() -> Component.literal("Stopped " + finalStopped + " bots on path '" + pathName + "'"), true);
             return stopped;
+        } else if (unspawned > 0) {
+            return unspawned;
         } else {
             source.sendFailure(Component.literal("No bots are following path '" + pathName + "'"));
             return 0;

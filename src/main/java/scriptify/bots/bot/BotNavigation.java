@@ -620,11 +620,7 @@ public class BotNavigation {
     }
 
     private static String pathWalkType(String botName) {
-        if (!BotPath.isFollowing(botName)) return null;
-        var follower = BotPath.getFollower(botName);
-        if (follower == null) return null;
-        var pathData = BotPath.getPath(follower.pathName);
-        return pathData == null ? null : pathData.walkType;
+        return BotPath.walkTypeOf(botName);
     }
 
     private static void updateStrafe(NavigationState state, BotProfile profile, double intensity) {

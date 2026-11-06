@@ -313,7 +313,9 @@ public final class BotScenes {
 
         if (saved.path != null) {
             if (BotPath.getPath(saved.path) == null && saved.route != null) {
-                BotPath.getAllPaths().put(saved.path, copy(saved.route, BotPath.PathData.class));
+                BotPath.PathData route = copy(saved.route, BotPath.PathData.class);
+                BotPath.upgrade(route);
+                BotPath.getAllPaths().put(saved.path, route);
                 BotPath.save();
             }
             boolean walking = saved.combatPath
