@@ -175,6 +175,16 @@ public final class Sfx {
 	// ---- plumbing ---------------------------------------------------------
 
 	/** Sent only down this player's connection, so nobody else hears it. */
+	/** The last seconds of a countdown: one pling a second, higher as it gets closer. */
+	public static void countdownTick(ServerPlayer player, int secondsLeft) {
+		toPlayer(player, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_PLING.value(), 1.0F,
+			0.6F + (3 - secondsLeft) * 0.25F);
+	}
+
+	public static void countdownEnd(ServerPlayer player) {
+		toPlayer(player, net.minecraft.sounds.SoundEvents.PLAYER_LEVELUP, 1.0F, 1.0F);
+	}
+
 	private static void toPlayer(ServerPlayer player, SoundEvent sound, float volume, float pitch) {
 		try {
 			player.connection.send(new net.minecraft.network.protocol.game.ClientboundSoundPacket(

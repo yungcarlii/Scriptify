@@ -14,6 +14,9 @@
   the real toast, any title, the held item as its icon, task, goal or challenge), `kick` / `ban`
   screens that record nothing, `chat` and `whisper` from anyone (online or not), and `lightning` /
   `explosion` that look and sound real and touch nothing: no fire, no damage, no broken blocks.
+- **`/countdown <seconds> [title]`** - a boss bar everyone online sees, late joiners included. It
+  drains smoothly from green through yellow to red, and the last three seconds land as big titles
+  with a rising tick. `/countdown stop` takes it down. For events, challenges and the start of a hunt.
 - **`/durability`** opens a menu: Max, or Random as heavily, moderately or lightly worn, or an exact
   1-100 level. Every item lands a little differently so gear looks used rather than stamped.
 - **Fix:** a bot stuck right beside its route point no longer crashes the server

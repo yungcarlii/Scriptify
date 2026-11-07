@@ -352,6 +352,7 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/totem [count] [player]` | Give totems |
 | `/top` | Teleport to the surface |
 | `/pvp on\|off` | Toggle PvP server-wide |
+| `/countdown <seconds> [title]` · `/countdown stop` | A boss-bar countdown for everyone: drains green to red, 3-2-1 titles with a rising tick |
 
 ### Immortality
 

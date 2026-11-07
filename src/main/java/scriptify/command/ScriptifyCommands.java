@@ -69,6 +69,31 @@ public final class ScriptifyCommands {
 		MakerCommands.register(dispatcher);
 		CueCommands.register(dispatcher);
 		FakeCommands.register(dispatcher);
+		registerCountdown(dispatcher);
+	}
+
+	/** {@code /countdown <seconds> [title]} for everyone online; {@code /countdown stop} takes it down. */
+	private static void registerCountdown(CommandDispatcher<CommandSourceStack> dispatcher) {
+		dispatcher.register(literal("countdown")
+			.requires(source -> has(source, PermissionService.PLAYER))
+			.then(literal("stop").executes(context -> {
+				boolean stopped = scriptify.feature.Countdown.stop();
+				context.getSource().sendSuccess(() -> Msg.line(stopped ? "Countdown stopped." : "Nothing is counting down."), false);
+				return stopped ? 1 : 0;
+			}))
+			.then(argument("seconds", IntegerArgumentType.integer(1, 86400))
+				.executes(context -> startCountdown(context.getSource(),
+					IntegerArgumentType.getInteger(context, "seconds"), "Starting in"))
+				.then(argument("title", StringArgumentType.greedyString())
+					.executes(context -> startCountdown(context.getSource(),
+						IntegerArgumentType.getInteger(context, "seconds"),
+						StringArgumentType.getString(context, "title"))))));
+	}
+
+	private static int startCountdown(CommandSourceStack source, int seconds, String title) {
+		scriptify.feature.Countdown.start(source.getServer(), seconds, title);
+		source.sendSuccess(() -> Msg.line("Counting down " + seconds + "s: " + title), false);
+		return 1;
 	}
 
 	/**

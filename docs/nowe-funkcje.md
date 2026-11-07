@@ -129,7 +129,26 @@ która odpala cue.
 
 ---
 
-## 3. Durability w GUI (`/durability`)
+## 3. Odliczanie (`/countdown`)
+
+```
+/countdown 60 Manhunt startuje za
+/countdown stop
+```
+- Pasek bossa u wszystkich graczy online (także u tych, którzy wejdą w trakcie), z czasem w formacie
+  `0:42`.
+- Pasek płynnie się opróżnia i zmienia kolor z zielonego przez żółty na czerwony.
+- Ostatnie 3 sekundy to duże tytuły „3”, „2”, „1” z coraz wyższym dźwiękiem, a na koniec gra dźwięk
+  level-upu.
+- Bez tytułu pasek pokazuje „Starting in”. Naraz działa jedno odliczanie; nowe zastępuje stare.
+- Pasuje do cue: `/cue add start countdown 10 Start za`, potem `/cue wait start 10`, a dalej to, co
+  ma się stać na zero.
+
+**Uprawnienie:** `scriptify.player`.
+
+---
+
+## 4. Durability w GUI (`/durability`)
 
 `/durability` otwiera menu (podkomend `max` i `random` już nie ma):
 - **Max** naprawia wszystko, co gracz ma w ekwipunku i na sobie.
@@ -148,7 +167,7 @@ niszczy. Przycisk „Durability” w `/scriptify` otwiera to samo menu.
 
 ---
 
-## 4. Poprawki
+## 5. Poprawki
 
 - **Crash serwera z botami** (`IndexOutOfBoundsException` w `BotTicker.detourStep`): bot, który
   utknął tuż obok punktu swojej ścieżki, wywalał cały serwer. Teraz wraca na ścieżkę albo jest na
