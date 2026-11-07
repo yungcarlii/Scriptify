@@ -236,6 +236,11 @@ Your own skin is copied and stored the first time Scriptify overrides it, so `/i
   for a killer who need not be online or exist. `/fake kick` and `/fake ban` show the real disconnect
   screens with your reason and print the normal leave line; nothing is recorded, so they rejoin
   straight away.
+- **Fake chat and whispers** — `/fake chat Herobrine I am watching you` is a chat line from somebody
+  nobody is logged in as; `/fake whisper Steve Herobrine Turn around` reaches Steve alone.
+- **Harmless lightning and explosions** — `/fake lightning` strikes where you are looking with real
+  thunder but no fire, no damage and no charged creepers; `/fake explosion` is the blast, its sound
+  and nothing else, visible from across the map. The set stays standing for take two.
 
 ### Cues — scene scripts
 
@@ -407,6 +412,10 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/fake death <players> [killer]` | A death line, or "slain by" whoever you name |
 | `/fake advancement <player> task\|goal\|challenge <title> [\| description]` | Chat line and toast; icon is your held item |
 | `/fake kick\|ban <player> [reason]` | The real disconnect screen; nothing recorded |
+| `/fake chat <speaker> <message>` | A chat line from anyone — an online player's display name, or any name at all |
+| `/fake whisper <to> <from> <message>` | "<from> whispers to you", to that one player |
+| `/fake lightning [pos]` | Real bolt and thunder; no fire, no damage. Lands where you look by default |
+| `/fake explosion [pos]` | The look and sound of a blast; nothing broken, nobody hurt |
 
 ### Cues
 

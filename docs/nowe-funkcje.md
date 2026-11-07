@@ -91,6 +91,10 @@ Wszystko po nim to tekst.
 | `/fake advancement <kto> task\|goal\|challenge <tytuł> \| <opis>` | Linia na czacie jak w vanilli (z dymkiem po najechaniu) i prawdziwy toast w rogu ekranu gracza |
 | `/fake kick <kto> [powód]` | Prawdziwy ekran wyrzucenia i zwykłe „left the game" |
 | `/fake ban <kto> [powód]` | Ekran „You are banned from this server", ale gracz **nie** jest zbanowany i może od razu wejść z powrotem |
+| `/fake chat <kto> <wiadomość>` | `<kto> wiadomość` na czacie. Gracz online mówi swoim wyświetlanym nickiem (z pseudonimem i kolorem drużyny); każde inne słowo to nick kogoś, kogo nie ma na serwerze (np. Herobrine) |
+| `/fake whisper <do kogo> <od kogo> <wiadomość>` | „<od kogo> whispers to you: …” szarą kursywą, widoczne tylko dla jednego gracza |
+| `/fake lightning [pozycja]` | Prawdziwy piorun z grzmotem, ale bez ognia, obrażeń i naładowanych creeperów. Bez pozycji uderza tam, gdzie patrzysz |
+| `/fake explosion [pozycja]` | Wygląd i dźwięk wybuchu i nic więcej: żadnych zniszczonych bloków, obrażeń ani odrzutu. Widoczny z daleka. Bez pozycji wybucha tam, gdzie patrzysz |
 
 **Przykłady:**
 ```
@@ -99,7 +103,24 @@ Wszystko po nim to tekst.
 /fake death @a Herobrine
 /fake death Steve The Wither
 /fake ban Steve Griefowanie spawnu
+/fake chat Herobrine Widzę cię.
+/fake whisper Steve Herobrine Odwróć się.
+/fake lightning ~ ~ ~10
 ```
+
+**Przykład sceny jako cue** (piorun, grzmot, Herobrine się odzywa, ktoś „ginie”):
+```
+/cue new herobrine
+/cue add herobrine weather thunder
+/cue add herobrine fake lightning ~ ~ ~8
+/cue wait herobrine 1.5
+/cue add herobrine fake chat Herobrine Nie powinniście tu przychodzić.
+/cue wait herobrine 3
+/cue add herobrine fake explosion ~ ~ ~8
+/cue add herobrine fake death Steve Herobrine
+```
+Potem na każdym ujęciu wystarczy `/cue play herobrine`. Pozycje `~` liczą się od miejsca osoby,
+która odpala cue.
 - **Ikona osiągnięcia** to przedmiot, który trzymasz w ręce (trzymasz diament, to jest diament).
   Z konsoli albo bez przedmiotu w ręce ikoną jest blok trawy.
 - `task` i `goal` są zielone, `challenge` jest fioletowe, jak w vanilli.

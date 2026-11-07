@@ -144,6 +144,8 @@ public final class Help {
 		entry(source, "/fake death", "A death line, or <player> slain by <anyone>");
 		entry(source, "/fake advancement", "Chat line and toast: <player> task|goal|challenge <title> | <description>");
 		entry(source, "/fake join", "Also leave, kick and ban - screens and lines, nothing real");
+		entry(source, "/fake chat", "A chat line from anyone, online or not - also whisper");
+		entry(source, "/fake lightning", "Harmless bolt where you look - also explosion");
 
 		section(source, "Cues");
 		entry(source, "/cue record", "Act a scene out; every command and its timing is kept");

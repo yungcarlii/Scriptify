@@ -11,8 +11,9 @@
   title step shows a title instead of a chat line.
 - **`/fake`** - the illusions as commands, so cues and command blocks can stage them: `join`, `leave`,
   `death` (optionally "slain by" anyone, online or not), `advancement` (vanilla's own chat line plus
-  the real toast, any title, the held item as its icon, task, goal or challenge), and `kick` / `ban`
-  screens that record nothing.
+  the real toast, any title, the held item as its icon, task, goal or challenge), `kick` / `ban`
+  screens that record nothing, `chat` and `whisper` from anyone (online or not), and `lightning` /
+  `explosion` that look and sound real and touch nothing: no fire, no damage, no broken blocks.
 - **`/durability`** opens a menu: Max, or Random as heavily, moderately or lightly worn, or an exact
   1-100 level. Every item lands a little differently so gear looks used rather than stamped.
 - **Fix:** a bot stuck right beside its route point no longer crashes the server

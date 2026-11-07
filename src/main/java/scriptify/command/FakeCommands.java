@@ -9,13 +9,23 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import java.util.List;
+import net.minecraft.ChatFormatting;
 import net.minecraft.advancements.AdvancementType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.coordinates.Vec3Argument;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
 import scriptify.core.ScriptifyBootstrap;
 import scriptify.feature.FakeMessageService;
 import scriptify.permission.PermissionService;
@@ -43,7 +53,88 @@ public final class FakeCommands {
 			.then(literal("death").then(line(false).executes(context -> death(context))))
 			.then(literal("advancement").then(line(true).executes(context -> advancement(context))))
 			.then(literal("kick").then(line(false).executes(context -> disconnect(context, false))))
-			.then(literal("ban").then(line(false).executes(context -> disconnect(context, true)))));
+			.then(literal("ban").then(line(false).executes(context -> disconnect(context, true))))
+			.then(literal("chat").then(line(false).executes(context -> chat(context))))
+			.then(literal("whisper").then(line(false).executes(context -> whisper(context))))
+			.then(literal("lightning")
+				.executes(context -> lightning(context.getSource(), aimed(context.getSource())))
+				.then(argument("pos", Vec3Argument.vec3())
+					.executes(context -> lightning(context.getSource(), Vec3Argument.getVec3(context, "pos")))))
+			.then(literal("explosion")
+				.executes(context -> explosion(context.getSource(), aimed(context.getSource())))
+				.then(argument("pos", Vec3Argument.vec3())
+					.executes(context -> explosion(context.getSource(), Vec3Argument.getVec3(context, "pos"))))));
+	}
+
+	/**
+	 * {@code <speaker> <message>}: a chat line from anybody. An online player speaks under their display
+	 * name, nickname and team colour included; any other word is a name nobody has to be logged in as.
+	 */
+	private static int chat(CommandContext<CommandSourceStack> context) {
+		String[] parts = StringArgumentType.getString(context, "line").trim().split("\\s+", 2);
+		if (parts.length < 2) {
+			context.getSource().sendFailure(Msg.failure("Usage: /fake chat <speaker> <message>"));
+			return 0;
+		}
+		context.getSource().getServer().getPlayerList().broadcastSystemMessage(
+			Component.translatable("chat.type.text", speaker(context.getSource(), parts[0]), Component.literal(parts[1])),
+			false);
+		return 1;
+	}
+
+	/** {@code <to> <from> <message>}: "<from> whispers to you", shown to that one player only. */
+	private static int whisper(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		Line line = split(context);
+		String[] parts = line.rest().split("\\s+", 2);
+		if (parts.length < 2) {
+			context.getSource().sendFailure(Msg.failure("Usage: /fake whisper <to> <from> <message>"));
+			return 0;
+		}
+		Component message = Component.translatable("commands.message.display.incoming",
+				speaker(context.getSource(), parts[0]), Component.literal(parts[1]))
+			.withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC);
+		line.targets().forEach(player -> player.sendSystemMessage(message));
+		return line.targets().size();
+	}
+
+	private static Component speaker(CommandSourceStack source, String word) {
+		try {
+			return Targets.token(source, word).get(0).getDisplayName();
+		} catch (CommandSyntaxException exception) {
+			return Component.literal(word);
+		}
+	}
+
+	/** Where the person running it is looking, so a strike lands on the spot in shot; else where it runs. */
+	private static Vec3 aimed(CommandSourceStack source) {
+		return source.getEntity() instanceof ServerPlayer player
+			? player.pick(160.0D, 1.0F, false).getLocation() : source.getPosition();
+	}
+
+	/** A real bolt with real thunder, marked visual-only: no fire, no damage, no charged creepers. */
+	private static int lightning(CommandSourceStack source, Vec3 at) {
+		ServerLevel level = source.getLevel();
+		LightningBolt bolt = EntityType.LIGHTNING_BOLT.create(level, EntitySpawnReason.COMMAND);
+		if (bolt == null) {
+			return 0;
+		}
+		bolt.snapTo(at.x, at.y, at.z);
+		bolt.setVisualOnly(true);
+		level.addFreshEntity(bolt);
+		return 1;
+	}
+
+	/**
+	 * The look and sound of an explosion and nothing else: no blocks broken, nobody hurt or knocked back.
+	 * Sent long-distance, so a blast across the valley still shows in a wide shot.
+	 */
+	private static int explosion(CommandSourceStack source, Vec3 at) {
+		ServerLevel level = source.getLevel();
+		level.sendParticles(ParticleTypes.EXPLOSION_EMITTER, true, true, at.x, at.y, at.z, 1, 0, 0, 0, 0);
+		// Vanilla's own pitch spread, so a run of blasts does not sound like one sample on repeat.
+		level.playSound(null, at.x, at.y, at.z, SoundEvents.GENERIC_EXPLODE, SoundSource.BLOCKS, 4.0F,
+			(1.0F + (level.getRandom().nextFloat() - level.getRandom().nextFloat()) * 0.2F) * 0.7F);
+		return 1;
 	}
 
 	/**
