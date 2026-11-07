@@ -23,6 +23,12 @@
   with a rising tick. `/countdown stop` takes it down. For events, challenges and the start of a hunt.
 - **`/durability`** opens a menu: Max, or Random as heavily, moderately or lightly worn, or an exact
   1-100 level. Every item lands a little differently so gear looks used rather than stamped.
+- **Bots: fight on sight.** A setting (Settings → Targeting) that has bots on a path, in a scenario,
+  replaying a recording, wandering or following someone break off to fight anyone they notice - in
+  front of them within 24 blocks in clear sight, or within 5 blocks from any side - and go back to it
+  afterwards. Off by default.
+- **Fix: `/sudo` works.** Its target argument read the rest of the line, so `command` and `say` after
+  it were never reached and every `/sudo` failed to parse.
 - **Fix:** a bot stuck right beside its route point no longer crashes the server
   (`IndexOutOfBoundsException` in `BotTicker.detourStep`).
 

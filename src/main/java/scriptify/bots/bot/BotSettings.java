@@ -25,6 +25,8 @@ public class BotSettings {
     private boolean combatEnabled = true;
     private boolean revengeEnabled = true;
     private boolean autoTargetEnabled = false;
+    /** Bots with a job (path, scenario, recording, wander, follow) drop it to fight anyone they notice. */
+    private boolean fightOnSight = false;
     private boolean targetPlayers = true;
     private boolean targetHostileMobs = false;
     private boolean targetOtherBots = false;
@@ -185,6 +187,7 @@ public class BotSettings {
     public boolean isCombatEnabled() { return combatEnabled; }
     public boolean isRevengeEnabled() { return revengeEnabled; }
     public boolean isAutoTargetEnabled() { return autoTargetEnabled; }
+    public boolean isFightOnSight() { return fightOnSight; }
     public boolean isTargetPlayers() { return targetPlayers; }
     public boolean isTargetHostileMobs() { return targetHostileMobs; }
     public boolean isTargetOtherBots() { return targetOtherBots; }
@@ -273,6 +276,7 @@ public class BotSettings {
     public void setCombatEnabled(boolean value) { this.combatEnabled = value; save(); }
     public void setRevengeEnabled(boolean value) { this.revengeEnabled = value; save(); }
     public void setAutoTargetEnabled(boolean value) { this.autoTargetEnabled = value; save(); }
+    public void setFightOnSight(boolean value) { this.fightOnSight = value; save(); }
     public void setTargetPlayers(boolean value) { this.targetPlayers = value; save(); }
     public void setTargetHostileMobs(boolean value) { this.targetHostileMobs = value; save(); }
     public void setTargetOtherBots(boolean value) { this.targetOtherBots = value; save(); }

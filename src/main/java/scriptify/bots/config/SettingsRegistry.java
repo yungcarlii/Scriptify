@@ -175,6 +175,9 @@ public final class SettingsRegistry {
         // ---- Targeting ----
         bool("auto-target", "Auto target", "Pick fights without being told to", TARGETING,
             Items.SPYGLASS, BotSettings::isAutoTargetEnabled, BotSettings::setAutoTargetEnabled);
+        bool("fight-on-sight", "Fight on sight", "Bots on a path, scenario, recording, wander or "
+            + "follow drop it to attack whoever they notice, then go back to it", TARGETING,
+            Items.TARGET, BotSettings::isFightOnSight, BotSettings::setFightOnSight);
         bool("target-players", "Target players", "Attack real players", TARGETING,
             Items.PLAYER_HEAD, BotSettings::isTargetPlayers, BotSettings::setTargetPlayers);
         bool("target-bots", "Target bots", "Attack other bots", TARGETING,

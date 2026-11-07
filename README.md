@@ -102,6 +102,12 @@ separate mod called SBots; as of 2.0.0 it is part of Scriptify and lives under *
   look right on camera rather than to win: bots pearl away *before* healing rather than after failing
   to, cut webs with a sword rather than their fists, climb out of holes instead of walking into the
   wall, and do not leave block-breaking cracks over the scenery mid-fight.
+- **Fight on sight** (Settings → Targeting, or `/bots settings fight-on-sight true`) — a bot on a
+  path, in a scenario, replaying a recording, wandering or following someone drops it the moment it
+  notices somebody it is allowed to target, fights, and then goes back to what it was doing. Noticing
+  is the patrol rule: in front of it within 24 blocks with a clear line of sight, or close enough to
+  hear (5 blocks) from any side. A path picks up where it left off; a recording waits on its frame.
+  It never turns on the player it is following.
 - **`/bots performance`** reports what the roster is actually costing — count, stride, and how many
   bots thought last tick. Check it before blaming the server.
 

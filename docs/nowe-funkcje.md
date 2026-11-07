@@ -191,8 +191,47 @@ niszczy. Przycisk „Durability” w `/scriptify` otwiera to samo menu.
 
 ---
 
-## 6. Poprawki
+## 6. Boty: „Fight on sight" (atak po zauważeniu)
 
+**Gdzie:** `/bots` → **Settings** → **Targeting** → **Fight on sight** (ikona tarczy strzelniczej).
+Albo komendą: `/bots settings fight-on-sight true`. Domyślnie wyłączone.
+
+**Co robi:** bot, który ma jakieś zajęcie, rzuca je, gdy kogoś zauważy, i atakuje. Zajęcie to:
+- ścieżka (path),
+- scenariusz (rozmowa, tłum, więzienie, spawn),
+- odtwarzanie nagranego ruchu,
+- wander,
+- chodzenie za graczem (follow).
+
+Po walce wraca do tego, co robił:
+- ścieżka rusza dalej od miejsca, w którym bot ją przerwał,
+- nagranie czeka na swojej klatce i leci dalej od niej (bot wraca na nią skokiem),
+- scenariusz znowu przejmuje bota tam, gdzie akurat stoi.
+
+**Kiedy bot „zauważa":**
+- ktoś jest **przed nim** (stożek ok. 140°) w promieniu **24 bloków** i jest go widać (nie przez
+  ścianę),
+- albo ktoś jest **bliżej niż 5 bloków** z dowolnej strony (słyszy go),
+- albo ktoś go uderzył.
+
+**Kogo atakuje:** tylko tych, na których pozwalają inne ustawienia z Targeting. Na przykład
+**Target players** musi być włączone, żeby atakował graczy. Drużyny (factions) są respektowane, a bot
+nigdy nie atakuje gracza, za którym chodzi. Główny przełącznik **Combat AI** też musi być włączony.
+
+Boty bez zajęcia działają jak dotąd, według **Auto target**.
+
+Sprawdzone na serwerze: bot chodzący za innym botem przy wyłączonej opcji ignorował „intruza" stojącego
+przed nim. Po włączeniu opcji (w trakcie, bez restartu) w ciągu kilku sekund go namierzył i zaatakował.
+
+---
+
+## 7. Poprawki
+
+- **`/sudo` działa.** Wcześniej każda komenda `/sudo <gracz> command …` i `/sudo <gracz> say …`
+  kończyła się błędem składni (argument gracza „zjadał" resztę linii). Sprawdzone na serwerze: bot
+  wykonał komendę i powiedział linię.
+- **Nagrywanie cue sprawdzone:** przez `/sudo` na bocie. `/cue record` zapisało dwie komendy
+  z prawdziwym odstępem 2,1 s.
 - **Crash serwera z botami** (`IndexOutOfBoundsException` w `BotTicker.detourStep`): bot, który
   utknął tuż obok punktu swojej ścieżki, wywalał cały serwer. Teraz wraca na ścieżkę albo jest na
   nią przenoszony.
@@ -216,7 +255,6 @@ Wszystkie testy jednostkowe przechodzą.
 Bez prawdziwego klienta nie dało się zobaczyć:
 - toastu fałszywego osiągnięcia na ekranie,
 - ekranów kick/ban (bot nie ma prawdziwego połączenia),
-- nagrywania `/cue record` (potrzebuje gracza),
 - wyglądu poprawionych menu.
 
 Warto raz to przeklikać na serwerze.

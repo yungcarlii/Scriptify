@@ -115,6 +115,13 @@ public final class MovementReplay {
             if (playback == null || !bot.isAlive()) {
                 continue;
             }
+            // Fight on sight: the fight has the bot. The recording holds its place and carries on
+            // from that frame once the fight is over.
+            var target = scriptify.bots.bot.BotCombat.getTarget(bot.getName().getString());
+            if (target != null && target.isAlive()
+                && scriptify.bots.ai.TargetSelector.onLookout(bot.getName().getString())) {
+                continue;
+            }
             Frame frame = playback.frames.get(playback.cursor);
             apply(bot, frame);
             // Loops rather than stopping at the end: a recording is a performance to repeat, and a

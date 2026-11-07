@@ -134,6 +134,22 @@ public class BotCombat {
         return getState(botName).target;
     }
 
+    /**
+     * Fight on sight, for a bot a scenario or a recording is driving: whether it has somebody to
+     * fight, looking if it has not. Only picks the target - the ordinary combat update does the
+     * fighting once this says yes, and the scenario or recording gets the bot back when it says no.
+     */
+    public static boolean spot(ServerPlayer bot, MinecraftServer server, long serverTick) {
+        BotSettings settings = BotSettings.get();
+        if (!settings.isCombatEnabled()) return false;
+        String botName = bot.getName().getString();
+        CombatState state = getState(botName);
+        if (state.target != null && state.target.isAlive()) return true;
+        state.target = TargetSelector.select(bot, BotProfile.of(botName), settings, server,
+            state.forcedTargetName, state.lastAttacker, serverTick);
+        return state.target != null;
+    }
+
     public static void setTarget(String botName, String targetName) {
         getState(botName).forcedTargetName = targetName;
     }

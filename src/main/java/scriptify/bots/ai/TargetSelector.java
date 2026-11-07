@@ -88,8 +88,10 @@ public final class TargetSelector {
         Memory mem = memory(botName);
         if (mem.commitTicks > 0) mem.commitTicks--;
         // Patrolling a route: looks for trouble whatever auto-target says, but only trouble it
-        // has actually noticed - see noticed() for what that means.
-        boolean patrol = scriptify.bots.bot.BotPath.isCombatPath(botName);
+        // has actually noticed - see noticed() for what that means. Fight on sight puts every bot
+        // with a job on the same footing.
+        boolean combatPath = scriptify.bots.bot.BotPath.isCombatPath(botName);
+        boolean patrol = combatPath || onLookout(botName);
 
         Entity current = resolve(bot, mem.targetId);
 
@@ -128,7 +130,8 @@ public final class TargetSelector {
         // follows a runner to the horizon has stopped guarding anything.
         double chaseDist = maxDist;
         if (patrol) {
-            maxDist = scriptify.bots.bot.BotPath.sightRange(botName);
+            maxDist = combatPath ? scriptify.bots.bot.BotPath.sightRange(botName)
+                : scriptify.bots.bot.BotPath.DEFAULT_SIGHT_RANGE;
             chaseDist = maxDist + PATROL_CHASE_EXTRA;
         }
         boolean engaged = current != null && isAttackable(bot, current, settings);
@@ -291,6 +294,20 @@ public final class TargetSelector {
      * front of you, hearing them right behind you, or being hit by them. Whether a wall is in the
      * way is left to the line-of-sight check, which is the expensive part.</p>
      */
+    /**
+     * Whether fight on sight has this bot keeping watch: it has a job - a route, a scenario, a
+     * recording, a wander, someone to follow - and drops it for anybody it notices, the way a patrol
+     * does. A bot with no job is left to auto-target, as before.
+     */
+    public static boolean onLookout(String botName) {
+        if (!BotSettings.get().isFightOnSight()) return false;
+        return scriptify.bots.bot.BotPath.isFollowing(botName)
+            || scriptify.bots.scenario.ScenarioManager.owns(botName)
+            || scriptify.bots.npc.MovementReplay.isPlaying(botName)
+            || scriptify.bots.npc.EditMode.isWandering(botName)
+            || scriptify.bots.bot.BotFollow.isFollowing(botName);
+    }
+
     private static boolean noticed(ServerPlayer bot, Entity candidate, Entity lastAttacker) {
         if (candidate == lastAttacker) return true;
         double dx = candidate.getX() - bot.getX();

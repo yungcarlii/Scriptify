@@ -121,11 +121,14 @@ public class BotTicker {
             // A bot in a scenario is being driven by that scenario. Running the combat brain
             // over the top would have someone stood in a conversation break off to go and
             // fight, which is the whole thing scenarios exist not to do.
-            if (scriptify.bots.npc.MovementReplay.isPlaying(botName)) {
-                continue;
-            }
-            if (scriptify.bots.scenario.ScenarioManager.owns(botName)) {
-                scriptify.bots.ai.Crouch.tick(bot, server);
+            //
+            // Unless fight on sight is on and it has noticed somebody: then the fight has it, and the
+            // scenario or recording gets it back when the fight is over.
+            boolean replaying = scriptify.bots.npc.MovementReplay.isPlaying(botName);
+            boolean staged = scriptify.bots.scenario.ScenarioManager.owns(botName);
+            if ((replaying || staged) && !(scriptify.bots.ai.TargetSelector.onLookout(botName)
+                && BotCombat.spot(bot, server, serverTick))) {
+                if (staged) scriptify.bots.ai.Crouch.tick(bot, server);
                 continue;
             }
 
@@ -168,7 +171,8 @@ public class BotTicker {
                 continue;
             }
 
-            boolean followingWithoutAttack = BotPath.isFollowing(botName) && !BotPath.shouldAttack(botName);
+            boolean followingWithoutAttack = BotPath.isFollowing(botName) && !BotPath.shouldAttack(botName)
+                && !scriptify.bots.ai.TargetSelector.onLookout(botName);
             if (!followingWithoutAttack) {
                 BotCombat.update(bot, server, serverTick);
             }
@@ -299,7 +303,7 @@ public class BotTicker {
     private static void tickPathFollowing(ServerPlayer bot, String botName, BotProfile profile) {
         BotPath.PathFollower follower = BotPath.getFollower(botName);
         if (follower == null) return;
-        boolean shouldAttack = BotPath.shouldAttack(botName);
+        boolean shouldAttack = BotPath.shouldAttack(botName) || scriptify.bots.ai.TargetSelector.onLookout(botName);
         var target = BotCombat.getTarget(botName);
         boolean hasTarget = target != null && target.isAlive();
 
