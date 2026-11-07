@@ -31,9 +31,12 @@ import scriptify.permission.PermissionService;
  * is actually in charge.
  */
 public final class PermissionsMenu {
+	// Row four as well: there are more nodes than two rows hold, and the ones past the fourteenth were
+	// simply never drawn.
 	private static final int[] NODE_SLOTS = {
 		10, 11, 12, 13, 14, 15, 16,
 		19, 20, 21, 22, 23, 24, 25,
+		37, 38, 39, 40, 41, 42, 43,
 	};
 
 	/** What each node unlocks, in the words somebody deciding would use. */
@@ -147,7 +150,8 @@ public final class PermissionsMenu {
 				}).build());
 		}
 
-		int roleSlot = 29;
+		// 28-30, clear of the rank button at 31, which used to cover the third role.
+		int roleSlot = 28;
 		for (Role role : ROLES) {
 			gui.setSlot(roleSlot++, Menus.button(role.icon(), role.name(), ChatFormatting.AQUA,
 					role.description(),

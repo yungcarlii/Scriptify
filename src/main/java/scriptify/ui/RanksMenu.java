@@ -26,9 +26,12 @@ public final class RanksMenu {
 		10, 11, 12, 13, 14, 15, 16,
 		19, 20, 21, 22, 23, 24, 25,
 	};
+	// Plus the free end of row three: there are more nodes than two rows hold, and the ones past the
+	// fourteenth were simply never drawn.
 	private static final int[] NODE_SLOTS = {
 		10, 11, 12, 13, 14, 15, 16,
 		19, 20, 21, 22, 23, 24, 25,
+		33, 34,
 	};
 
 	private RanksMenu() {
