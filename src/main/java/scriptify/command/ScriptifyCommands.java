@@ -67,6 +67,8 @@ public final class ScriptifyCommands {
 		registerDeath(dispatcher);
 		registerSudo(dispatcher);
 		MakerCommands.register(dispatcher);
+		CueCommands.register(dispatcher);
+		FakeCommands.register(dispatcher);
 	}
 
 	/**

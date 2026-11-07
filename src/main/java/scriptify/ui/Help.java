@@ -141,6 +141,15 @@ public final class Help {
 		entry(source, "/ondeath", "Staged deaths");
 		entry(source, "/ondeath restore", "Bring someone back");
 		entry(source, "/sudo", "Act as another player");
+		entry(source, "/fake death", "A death line, or <player> slain by <anyone>");
+		entry(source, "/fake advancement", "Chat line and toast: <player> task|goal|challenge <title> | <description>");
+		entry(source, "/fake join", "Also leave, kick and ban - screens and lines, nothing real");
+
+		section(source, "Cues");
+		entry(source, "/cue record", "Act a scene out; every command and its timing is kept");
+		entry(source, "/cue done", "Stop recording");
+		entry(source, "/cue play", "Fire a whole cue - also stop, show, list");
+		entry(source, "/cue new", "Write one by hand - then add <command>, wait <seconds>");
 
 		blank(source);
 		selectorFooter(source);

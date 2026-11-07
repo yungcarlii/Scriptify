@@ -63,6 +63,59 @@ public final class FakeMessageService {
 		broadcastJoin(player);
 	}
 
+	/** {@code <player> was slain by <killer>}, for a kill by somebody who need not be online, or exist. */
+	public void broadcastSlain(ServerPlayer player, String killer) {
+		broadcast(Component.translatable("death.attack.player", player.getDisplayName(), Component.literal(killer)));
+	}
+
+	/**
+	 * {@code <player> has made the advancement [title]}, built by vanilla's own announcement code so the
+	 * colours and hover match exactly, plus the real toast in the corner of that player's screen.
+	 *
+	 * <p>The advancement exists for one packet pair: it is added already completed, then removed again. The
+	 * toast has what it needs by then, so it plays, but the advancement never appears in anybody's
+	 * advancement screen and nothing about it is saved.
+	 */
+	public void broadcastAdvancement(ServerPlayer player, net.minecraft.advancements.AdvancementType type,
+			Component title, Component description, net.minecraft.world.item.ItemStack icon) {
+		var id = net.minecraft.resources.Identifier.fromNamespaceAndPath("scriptify",
+			"fake/" + java.util.UUID.randomUUID());
+		var requirements = net.minecraft.advancements.AdvancementRequirements.allOf(java.util.List.of("done"));
+		var advancement = new net.minecraft.advancements.Advancement(java.util.Optional.empty(),
+			java.util.Optional.of(new net.minecraft.advancements.DisplayInfo(icon, title, description,
+				java.util.Optional.empty(), type, true, false, true)),
+			net.minecraft.advancements.AdvancementRewards.EMPTY,
+			java.util.Map.of("done", net.minecraft.advancements.CriteriaTriggers.IMPOSSIBLE.createCriterion(
+				new net.minecraft.advancements.criterion.ImpossibleTrigger.TriggerInstance())),
+			requirements, false);
+		var holder = new net.minecraft.advancements.AdvancementHolder(id, advancement);
+		var progress = new net.minecraft.advancements.AdvancementProgress();
+		progress.update(requirements);
+		progress.grantProgress("done");
+		player.connection.send(new net.minecraft.network.protocol.game.ClientboundUpdateAdvancementsPacket(
+			false, java.util.List.of(holder), java.util.Set.of(), java.util.Map.of(id, progress), true));
+		player.connection.send(new net.minecraft.network.protocol.game.ClientboundUpdateAdvancementsPacket(
+			false, java.util.List.of(), java.util.Set.of(id), java.util.Map.of(), false));
+		broadcast(type.createAnnouncement(holder, player));
+	}
+
+	/**
+	 * Disconnects the player with vanilla's kick screen; the server then prints the ordinary leave line on
+	 * its own. Nothing is recorded anywhere, so they can rejoin straight away.
+	 */
+	public void stageKick(ServerPlayer player, String reason) {
+		player.connection.disconnect(reason == null
+			? Component.translatable("multiplayer.disconnect.kicked")
+			: Component.literal(reason));
+	}
+
+	/** Same, with the ban screen. They are not on the ban list, so the next join just works. */
+	public void stageBan(ServerPlayer player, String reason) {
+		player.connection.disconnect(reason == null
+			? Component.translatable("multiplayer.disconnect.banned")
+			: Component.translatable("multiplayer.disconnect.banned.reason", reason));
+	}
+
 	private void broadcast(Component message) {
 		this.context.server().getPlayerList().broadcastSystemMessage(message, false);
 	}

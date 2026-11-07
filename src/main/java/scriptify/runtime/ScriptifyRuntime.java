@@ -141,8 +141,11 @@ public final class ScriptifyRuntime {
 			}
 			// Converges the entity tracker after an identity change, so nobody is left invisible.
 			scriptify.nick.RefreshWatchdog.tick(server);
-			// Collapses a burst of rank edits into one file write.
 			var currentContext = context();
+			if (currentContext != null) {
+				currentContext.events().tick(server);
+			}
+			// Collapses a burst of rank edits into one file write.
 			var permissions = currentContext == null ? null : currentContext.permissions();
 			if (permissions != null && permissions.ranks() != null) {
 				permissions.ranks().flush();

@@ -60,6 +60,24 @@ public abstract class CommandGateMixin {
 		callback.cancel();
 	}
 
+	/**
+	 * Hands each command a player runs to the cue recorder, which ignores anyone not recording.
+	 *
+	 * <p>After the gate in this class, so a command a rank refused never becomes a step, and only once the
+	 * command has parsed, so a typo is not recorded as a step that fails on every take.
+	 */
+	@Inject(method = "performCommand", at = @At("HEAD"))
+	private void scriptify$recordCue(ParseResults<CommandSourceStack> parse, String command,
+			CallbackInfo callback) {
+		if (parse.getReader().canRead() || !parse.getExceptions().isEmpty()) {
+			return;
+		}
+		var context = scriptify.core.ScriptifyBootstrap.context();
+		if (context != null && parse.getContext().getSource().getEntity() instanceof ServerPlayer player) {
+			context.events().onCommand(player, command);
+		}
+	}
+
 	/** The first word of the command, without its slash and without any arguments. */
 	private static String rootOf(String command) {
 		String trimmed = command.startsWith("/") ? command.substring(1) : command;

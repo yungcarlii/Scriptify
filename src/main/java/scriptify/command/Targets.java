@@ -103,6 +103,18 @@ public final class Targets {
 		return matched;
 	}
 
+	/**
+	 * Resolves one token already split off a longer argument, for the commands where the target is the
+	 * first word and free text follows it - which the greedy {@link #arg()} cannot express.
+	 */
+	public static List<ServerPlayer> token(CommandSourceStack source, String token) throws CommandSyntaxException {
+		List<ServerPlayer> matched = resolve(source, token);
+		if (matched.isEmpty()) {
+			throw NO_MATCH.create();
+		}
+		return matched;
+	}
+
 	/** Resolves to exactly one player — the first match when a selector covers several. */
 	public static ServerPlayer one(CommandContext<CommandSourceStack> context, String name)
 			throws CommandSyntaxException {

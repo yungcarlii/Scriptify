@@ -228,6 +228,32 @@ Your own skin is copied and stored the first time Scriptify overrides it, so `/i
   autocomplete and can never collide with somebody actually connected.
 - **Sudo** — make a player run a command or say a line on cue.
 - **Mute chat** — silence everyone but staff during a take.
+- **Fake advancements** — `/fake advancement Steve challenge Betrayal | Stab your best friend` prints
+  vanilla's own purple challenge line, hover included, and plays the real toast on Steve's screen. Any
+  title, task, goal or challenge, and the icon is whatever you are holding. It is gone again the
+  moment the toast has played: it never shows in the advancement screen and nothing is saved.
+- **Fake kills, kicks and bans** — `/fake death Steve Herobrine` is "Steve was slain by Herobrine",
+  for a killer who need not be online or exist. `/fake kick` and `/fake ban` show the real disconnect
+  screens with your reason and print the normal leave line; nothing is recorded, so they rejoin
+  straight away.
+
+### Cues — scene scripts
+
+A cue is one beat of a scene — a title, a pause, lightning, a line of dialogue, a death — fired with
+one command, at exactly the same timing on every take.
+
+- **Record it by doing it.** `/cue record ambush`, then run the scene's commands at the pace you
+  want them, then `/cue done`. Every command is kept together with the real time between them. Your
+  first command starts the cue, so time spent thinking before it is not part of the scene.
+- **Or write it.** `/cue new ambush`, then `/cue add ambush <command>` and `/cue wait ambush <seconds>`.
+  A command that does not parse is refused when you add it, not halfway through a take.
+- **Play it.** `/cue play ambush` — from chat, a command block behind a button, or another cue.
+  Commands run **silently**: no "Teleported Steve to…" in chat, because chat is in the shot. They run
+  with the permissions of whoever played the cue, never more.
+- **Read and fix it.** `/cue show ambush` lists every step with the second it starts at; click a
+  step to remove it. `/cue` lists all cues; click one to play it.
+
+Cues are saved one file each under `scriptify/events/` in the world folder.
 
 ---
 
@@ -377,6 +403,23 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/ondeath restore [player]` | Bring someone back into the scene |
 | `/sudo <player> command <...>` | Run a command as them |
 | `/sudo <player> say <...>` | Say something as them |
+| `/fake join\|leave <players>` | A join or leave line; a leave also drops them from the tab list |
+| `/fake death <players> [killer]` | A death line, or "slain by" whoever you name |
+| `/fake advancement <player> task\|goal\|challenge <title> [\| description]` | Chat line and toast; icon is your held item |
+| `/fake kick\|ban <player> [reason]` | The real disconnect screen; nothing recorded |
+
+### Cues
+
+| Command | Description |
+| --- | --- |
+| `/cue` · `/cue list` | Every cue, click to play |
+| `/cue record <name>` · `/cue done` | Record the commands you run, with their timing |
+| `/cue new <name>` | Start an empty cue |
+| `/cue add <name> <command>` | Add a command step |
+| `/cue wait <name> <seconds>` | Add a pause |
+| `/cue show <name>` · `/cue remove <name> <step>` | Read the steps; take one out |
+| `/cue play <name>` · `/cue stop [name]` | Run a cue; stop one or all |
+| `/cue delete <name>` | Forget a cue |
 
 ---
 
@@ -387,14 +430,14 @@ LuckPerms and Scriptify will use it automatically.
 
 | Node | Covers |
 | --- | --- |
-| `scriptify.admin` | Everything, including `/sudo` and reload |
+| `scriptify.admin` | Everything, including `/sudo`, `/cue` and reload |
 | `scriptify.gui.open` | The `/scriptify` menu |
 | `scriptify.nick` | Nickname commands |
 | `scriptify.skin` | Skin commands |
 | `scriptify.player` | Player state: freeze, invis, vanish, immortal, health, gamemode |
 | `scriptify.inventory` | Invsee, backups, copyinv, clearground, restock, durability, random fill |
 | `scriptify.kits` | Kits |
-| `scriptify.ondeath` | Staged deaths |
+| `scriptify.ondeath` | Staged deaths and `/fake` |
 | `scriptify.items` | Item maker |
 | `scriptify.villagers` | Villager maker |
 | `scriptify.teams` | Team management |

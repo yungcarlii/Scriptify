@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Cues - scene scripts.** `/cue record <name>`, act the scene out, `/cue done`: every command you
+  ran is kept with the real time between them, and `/cue play <name>` fires the whole beat again
+  with the same timing, as often as there are takes. Or write one by hand with `/cue new`, `/cue add`
+  and `/cue wait`. Cues run silently (no command feedback in chat, which would be in the shot), with
+  the permissions of whoever plays them, and can be played from command blocks and from other cues.
+  This is the old, never-reachable event engine made real: its delay step now actually waits, and its
+  title step shows a title instead of a chat line.
+- **`/fake`** - the illusions as commands, so cues and command blocks can stage them: `join`, `leave`,
+  `death` (optionally "slain by" anyone, online or not), `advancement` (vanilla's own chat line plus
+  the real toast, any title, the held item as its icon, task, goal or challenge), and `kick` / `ban`
+  screens that record nothing.
+- **`/durability`** opens a menu: Max, or Random as heavily, moderately or lightly worn, or an exact
+  1-100 level. Every item lands a little differently so gear looks used rather than stamped.
+- **Fix:** a bot stuck right beside its route point no longer crashes the server
+  (`IndexOutOfBoundsException` in `BotTicker.detourStep`).
+
 ## 2.0.2
 
 - **The fake tab only in the vanilla dimensions.** The invented players are shown to players in
