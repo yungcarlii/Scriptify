@@ -69,6 +69,7 @@ public final class ScriptifyCommands {
 		MakerCommands.register(dispatcher);
 		CueCommands.register(dispatcher);
 		FakeCommands.register(dispatcher);
+		StageCommands.register(dispatcher);
 		registerCountdown(dispatcher);
 	}
 

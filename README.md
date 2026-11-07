@@ -260,6 +260,15 @@ one command, at exactly the same timing on every take.
 
 Cues are saved one file each under `scriptify/events/` in the world folder.
 
+### Stages — reset the set between takes
+
+`/stage save village 32` copies every block in a box around you — air too, so debris is cleared, and
+chests and signs with what is in them. After the explosion, the fight and the griefing, `/stage reset
+village` puts every block back exactly as it was, without drops, without spilling the chests that
+were standing there, and without sand falling or TNT lighting because something was placed next to
+it. The cast and the bots are entities and stay where they are. Radius up to 48 (97 blocks a side).
+A reset fits in a cue as well, so one `/cue play` can put the whole scene back for the next take.
+
 ---
 
 ## Commands
@@ -430,6 +439,14 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/cue show <name>` · `/cue remove <name> <step>` | Read the steps; take one out |
 | `/cue play <name>` · `/cue stop [name]` | Run a cue; stop one or all |
 | `/cue delete <name>` | Forget a cue |
+
+### Stages
+
+| Command | Description |
+| --- | --- |
+| `/stage save <name> [radius]` | Copy the blocks around you (radius 24 by default, up to 48) |
+| `/stage reset <name>` | Put every block back as it was saved |
+| `/stage` · `/stage list` · `/stage delete <name>` | Manage saved stages |
 
 ---
 

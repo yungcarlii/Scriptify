@@ -14,6 +14,10 @@
   the real toast, any title, the held item as its icon, task, goal or challenge), `kick` / `ban`
   screens that record nothing, `chat` and `whisper` from anyone (online or not), and `lightning` /
   `explosion` that look and sound real and touch nothing: no fire, no damage, no broken blocks.
+- **Stages - reset the set between takes.** `/stage save <name> [radius]` copies every block in a box
+  around you (air, chests and their contents included); `/stage reset <name>` lays it back exactly,
+  with no drops, no spilled chests and no falling sand or lit TNT. Entities - the cast, the bots -
+  are left where they are. Built on vanilla structure templates; saved under `scriptify/stages/`.
 - **`/countdown <seconds> [title]`** - a boss bar everyone online sees, late joiners included. It
   drains smoothly from green through yellow to red, and the last three seconds land as big titles
   with a rising tick. `/countdown stop` takes it down. For events, challenges and the start of a hunt.

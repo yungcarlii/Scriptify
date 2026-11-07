@@ -153,6 +153,8 @@ public final class Help {
 		entry(source, "/cue done", "Stop recording");
 		entry(source, "/cue play", "Fire a whole cue - also stop, show, list");
 		entry(source, "/cue new", "Write one by hand - then add <command>, wait <seconds>");
+		entry(source, "/stage save", "Copy the set around you: <name> [radius]");
+		entry(source, "/stage reset", "Put every block back for the next take");
 
 		blank(source);
 		selectorFooter(source);

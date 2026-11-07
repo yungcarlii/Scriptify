@@ -129,7 +129,31 @@ która odpala cue.
 
 ---
 
-## 3. Odliczanie (`/countdown`)
+## 3. Reset planu między ujęciami (`/stage`)
+
+```
+/stage save wioska 32
+/stage reset wioska
+```
+- `save` kopiuje każdy blok w sześcianie wokół ciebie (domyślnie promień 24, maksymalnie 48, czyli
+  97 bloków na bok). Kopiowane jest też powietrze, więc reset czyści gruz, a skrzynie i tabliczki
+  razem z zawartością.
+- `reset` kładzie wszystko z powrotem dokładnie tak, jak było: po wybuchu, walce czy „griefie" plan
+  jest gotowy na drugie ujęcie. Nic przy tym nie wypada, skrzynie nie wysypują zawartości, piasek nie
+  spada, a TNT się nie zapala.
+- Gracze i boty to byty (entities), więc zostają tam, gdzie stoją. Ramki na przedmioty i stojaki na
+  zbroję **nie** są przywracane.
+- `/stage` lub `/stage list` pokazuje zapisane plany, a `/stage delete <nazwa>` usuwa plan.
+- Reset można wrzucić do cue, np. `/cue add reset stage reset wioska`.
+
+**Zapis:** `<świat>/scriptify/stages/<nazwa>.nbt`. **Uprawnienie:** `scriptify.admin`.
+
+Sprawdzone na serwerze: skrzynia z 5 diamentami usunięta i zastąpiona złotym blokiem, a po `reset`
+złoty blok zniknął i skrzynia wróciła z diamentami.
+
+---
+
+## 4. Odliczanie (`/countdown`)
 
 ```
 /countdown 60 Manhunt startuje za
@@ -148,7 +172,7 @@ która odpala cue.
 
 ---
 
-## 4. Durability w GUI (`/durability`)
+## 5. Durability w GUI (`/durability`)
 
 `/durability` otwiera menu (podkomend `max` i `random` już nie ma):
 - **Max** naprawia wszystko, co gracz ma w ekwipunku i na sobie.
@@ -167,7 +191,7 @@ niszczy. Przycisk „Durability” w `/scriptify` otwiera to samo menu.
 
 ---
 
-## 5. Poprawki
+## 6. Poprawki
 
 - **Crash serwera z botami** (`IndexOutOfBoundsException` w `BotTicker.detourStep`): bot, który
   utknął tuż obok punktu swojej ścieżki, wywalał cały serwer. Teraz wraca na ścieżkę albo jest na
