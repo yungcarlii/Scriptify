@@ -1246,29 +1246,45 @@ public final class ScriptifyCommands {
 	// ------------------------------------------------------------------ sudo
 
 	private static void registerSudo(CommandDispatcher<CommandSourceStack> dispatcher) {
+		// One line split by hand: the target argument is greedy, so "command" and "say" as children of it
+		// could never be reached - everything after the target was read as more target names.
 		dispatcher.register(literal("sudo")
 			.requires(source -> has(source, PermissionService.ADMIN))
-			.then(argument("target", Targets.arg()).suggests(Targets.SUGGEST)
-				.then(literal("command")
-					.then(argument("command", StringArgumentType.greedyString())
-						.executes(context -> {
-							ServerPlayer target = Targets.one(context, "target");
-							String command = StringArgumentType.getString(context, "command");
-							if (!ScriptifyRuntime.sudo().runCommand(target, command)) {
-								context.getSource().sendFailure(Msg.failure("That command could not be run."));
-								return 0;
-							}
-							context.getSource().sendSuccess(() -> Msg.line(
-								"Ran '" + command + "' as " + target.getGameProfile().name() + "."), true);
-							return 1;
-						})))
-				.then(literal("say")
-					.then(argument("message", StringArgumentType.greedyString())
-						.executes(context -> {
-							ServerPlayer target = Targets.one(context, "target");
-							ScriptifyRuntime.sudo().say(target, StringArgumentType.getString(context, "message"));
-							return 1;
-						})))));
+			.then(argument("line", StringArgumentType.greedyString())
+				.suggests((context, builder) -> {
+					String typed = builder.getRemaining();
+					int space = typed.indexOf(' ');
+					if (space < 0) {
+						return Targets.SUGGEST.getSuggestions(context, builder);
+					}
+					return typed.indexOf(' ', space + 1) < 0
+						? net.minecraft.commands.SharedSuggestionProvider.suggest(List.of("command", "say"),
+							builder.createOffset(builder.getStart() + space + 1))
+						: builder.buildFuture();
+				})
+				.executes(context -> sudo(context))));
+	}
+
+	/** {@code <player> command <...>} or {@code <player> say <...>}. */
+	private static int sudo(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		String[] parts = StringArgumentType.getString(context, "line").trim().split("\\s+", 3);
+		if (parts.length < 3 || !(parts[1].equalsIgnoreCase("command") || parts[1].equalsIgnoreCase("say"))) {
+			context.getSource().sendFailure(Msg.failure("Usage: /sudo <player> command <...> or /sudo <player> say <...>"));
+			return 0;
+		}
+		ServerPlayer target = Targets.token(context.getSource(), parts[0]).get(0);
+		if (parts[1].equalsIgnoreCase("say")) {
+			ScriptifyRuntime.sudo().say(target, parts[2]);
+			return 1;
+		}
+		String command = parts[2];
+		if (!ScriptifyRuntime.sudo().runCommand(target, command)) {
+			context.getSource().sendFailure(Msg.failure("That command could not be run."));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> Msg.line(
+			"Ran '" + command + "' as " + target.getGameProfile().name() + "."), true);
+		return 1;
 	}
 
 	// ------------------------------------------------------------------ rollback
