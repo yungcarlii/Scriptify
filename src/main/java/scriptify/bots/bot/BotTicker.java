@@ -439,7 +439,9 @@ public class BotTicker {
             var result = scriptify.bots.ai.Pathfinder.find(bot.level(), bot.blockPosition(),
                 net.minecraft.core.BlockPos.containing(point),
                 BotSettings.get().getPathNodeBudget() * RESCUE_BUDGET_FACTOR, 1.5);
-            if (result.complete()) {
+            // Complete but empty is "already within reach of the point" - stuck next to it, so a route
+            // there is no help and the bot needs rejoining or putting back like any other dead end.
+            if (result.complete() && !result.isEmpty()) {
                 follower.detour = result.waypoints();
                 follower.detourIndex = 0;
                 return;
