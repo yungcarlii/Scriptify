@@ -257,7 +257,7 @@ public final class ItemMakerService {
 	}
 
 	/** Translates {@code &} colour codes into the section sign the client renders. */
-	private static net.minecraft.network.chat.MutableComponent colour(String text) {
+	static net.minecraft.network.chat.MutableComponent colour(String text) {
 		return Component.literal(text.replace('&', ChatFormatting.PREFIX_CODE));
 	}
 }

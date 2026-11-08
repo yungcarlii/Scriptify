@@ -71,6 +71,19 @@ public final class ScriptifyCommands {
 		FakeCommands.register(dispatcher);
 		StageCommands.register(dispatcher);
 		registerCountdown(dispatcher);
+		registerAnnounce(dispatcher);
+	}
+
+	/** {@code /announce <message>} as a title on every screen; a long one carries on in the subtitle and over pages. */
+	private static void registerAnnounce(CommandDispatcher<CommandSourceStack> dispatcher) {
+		dispatcher.register(literal("announce")
+			.requires(source -> has(source, PermissionService.PLAYER))
+			.then(argument("message", StringArgumentType.greedyString()).executes(context -> {
+				int pages = scriptify.feature.Announcement.show(context.getSource().getServer(),
+					StringArgumentType.getString(context, "message"));
+				context.getSource().sendSuccess(() -> Msg.line(pages == 1 ? "Announced." : "Announced over " + pages + " titles."), false);
+				return pages;
+			})));
 	}
 
 	/** {@code /countdown <seconds> [title]} for everyone online; {@code /countdown stop} takes it down. */

@@ -147,6 +147,7 @@ public final class Help {
 		entry(source, "/fake chat", "A chat line from anyone, online or not - also whisper");
 		entry(source, "/fake lightning", "Harmless bolt where you look - also explosion");
 		entry(source, "/countdown", "Boss-bar countdown for everyone: <seconds> [title], or stop");
+		entry(source, "/announce", "A message as a title on every screen; long ones run on");
 
 		section(source, "Cues");
 		entry(source, "/cue record", "Act a scene out; every command and its timing is kept");

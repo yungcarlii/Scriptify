@@ -432,6 +432,7 @@ Everything below is also reachable from the `/scriptify` menu.
 | `/fake whisper <to> <from> <message>` | "<from> whispers to you", to that one player |
 | `/fake lightning [pos]` | Real bolt and thunder; no fire, no damage. Lands where you look by default |
 | `/fake explosion [pos]` | The look and sound of a blast; nothing broken, nobody hurt |
+| `/announce <message>` | The message as a title on every screen. A long one carries on in the subtitle, then over several titles in turn; words are never cut, `&` colour codes work |
 
 ### Cues
 

@@ -86,6 +86,7 @@ public final class ScriptifyRuntime {
 	public static void stop() {
 		// Static, so in singleplayer it would otherwise carry into the next world opened.
 		scriptify.feature.Countdown.stop();
+		scriptify.feature.Announcement.stop();
 		// The rank store defers writes to the next tick, and shutdown is exactly when there is no next
 		// tick. Flushing here is what stops a rank edit made seconds before /stop being lost.
 		var permissions = context() == null ? null : context().permissions();
@@ -148,6 +149,7 @@ public final class ScriptifyRuntime {
 				currentContext.events().tick(server);
 			}
 			scriptify.feature.Countdown.tick(server);
+			scriptify.feature.Announcement.tick(server);
 			// Collapses a burst of rank edits into one file write.
 			var permissions = currentContext == null ? null : currentContext.permissions();
 			if (permissions != null && permissions.ranks() != null) {

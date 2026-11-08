@@ -170,6 +170,28 @@ złoty blok zniknął i skrzynia wróciła z diamentami.
 
 **Uprawnienie:** `scriptify.player`.
 
+### Ogłoszenie jako tytuł (`/announce`)
+
+```
+/announce Dzień 7
+/announce &cGranica zamyka się o północy, wszyscy do zamku
+```
+- Wiadomość pojawia się jako duży tytuł na ekranie każdego gracza online.
+- W tytule mieści się ok. 22 znaków. Dłuższa wiadomość ciągnie się dalej mniejszym podtytułem pod
+  spodem (ok. 44 znaki).
+- Jeszcze dłuższa leci jako kilka tytułów po kolei. Każdy wisi na ekranie tak długo, żeby dało się go
+  przeczytać (ok. 2,5 s plus chwila na każdy znak).
+- Słowa nigdy nie są cięte w połowie.
+- Kolory `&` działają tak jak w `/item name` i przechodzą na następną linię, więc czerwona wiadomość
+  zostaje czerwona także w podtytule.
+- Działa z czatu, z konsoli i w cue, np. `/cue add intro announce Odcinek 1`. Nowe ogłoszenie
+  zastępuje to, które jeszcze się wyświetla.
+
+**Uprawnienie:** `scriptify.player`.
+
+Sprawdzone na serwerze, z konsoli i z cue, przy bocie online: krótkie, średnie, długie (wyszły
+2 tytuły) i kolorowe ogłoszenie przeszły bez błędów.
+
 ---
 
 ## 5. Durability w GUI (`/durability`)
@@ -255,6 +277,8 @@ Wszystkie testy jednostkowe przechodzą.
 Bez prawdziwego klienta nie dało się zobaczyć:
 - toastu fałszywego osiągnięcia na ekranie,
 - ekranów kick/ban (bot nie ma prawdziwego połączenia),
+- jak wyglądają tytuły `/announce`: czy ok. 22 znaki dobrze wypełniają ekran, czy podtytuł się
+  mieści i czy tempo zmiany stron jest wygodne do czytania,
 - wyglądu poprawionych menu.
 
 Warto raz to przeklikać na serwerze.

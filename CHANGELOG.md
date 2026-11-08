@@ -21,6 +21,10 @@
 - **`/countdown <seconds> [title]`** - a boss bar everyone online sees, late joiners included. It
   drains smoothly from green through yellow to red, and the last three seconds land as big titles
   with a rising tick. `/countdown stop` takes it down. For events, challenges and the start of a hunt.
+- **`/announce <message>`** - the message as a title on everyone's screen. About 22 characters fit
+  the title; the rest goes in the subtitle underneath, and a longer message runs over several titles
+  one after another, each held long enough to read. Words are never cut in half, and `&` colour codes
+  work and carry over the wrap. From chat, the console and cues.
 - **`/durability`** opens a menu: Max, or Random as heavily, moderately or lightly worn, or an exact
   1-100 level. Every item lands a little differently so gear looks used rather than stamped.
 - **Bots: fight on sight.** A setting (Settings → Targeting) that has bots on a path, in a scenario,
