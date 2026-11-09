@@ -6,6 +6,8 @@ classes/
 
 # Fabric
 run/
+# The Paper port's local test server
+run-paper/
 
 # IDEs
 .idea/
