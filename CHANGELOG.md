@@ -1,7 +1,18 @@
 # Changelog
 
-## Unreleased
+## 2.1.0
 
+- **Bot scenes.** `/bots savescene <name> [radius]` saves every bot around you - spot and facing,
+  gear, skin, faction, group, NPC settings, the path it walks, who it follows, wander, a playing
+  recording and its scenario - and `/bots scene <name>` brings them all back, any time, across
+  restarts. Bots already standing are skipped, so a live scene is never doubled. `/bots scene <name>
+  remove|delete` and `/bots scenes` round it out. Built for cities full of walking extras that lag
+  the server: take them out, keep the work, put them back for the next video.
+- **Bots on routes walk like people.** The new default "mixed" walk type gives every bot its own gait
+  (walk, sprint or sprint-jump) and has some stop now and then to look around. A bot boxed into one
+  spot for 4 s searches its way back to the route, rejoins it at the nearest point on its level, or is
+  put back on it. `/bots bot-management path populate <path> <count> [seconds]` spawns bots at the
+  start of a route one by one.
 - **Cues - scene scripts.** `/cue record <name>`, act the scene out, `/cue done`: every command you
   ran is kept with the real time between them, and `/cue play <name>` fires the whole beat again
   with the same timing, as often as there are takes. Or write one by hand with `/cue new`, `/cue add`
@@ -35,6 +46,8 @@
   it were never reached and every `/sudo` failed to parse.
 - **Fix:** a bot stuck right beside its route point no longer crashes the server
   (`IndexOutOfBoundsException` in `BotTicker.detourStep`).
+- **Fix:** the permission and rank menus show every node. The fifteenth, Bots, was never drawn and
+  could not be granted from a menu; the Cast role button was also hidden under the rank button.
 
 ## 2.0.2
 

@@ -4,6 +4,35 @@ Paste the matching block into the **changelog** field when uploading a version.
 
 ---
 
+## 2.1.0
+
+**Added**
+- **Cues** — script a scene beat once and replay it with the same timing on every take.
+  `/cue record <name>`, run your commands, `/cue done`; then `/cue play <name>`. Runs silently, from
+  chat, command blocks or other cues
+- **/fake** — staged moments as commands: join, leave, death ("slain by" anyone), advancement with
+  the real toast, kick and ban screens that record nothing, chat and whispers from anyone, and
+  lightning and explosions that look and sound real but break and hurt nothing
+- **/stage** — save the set around you and reset every block between takes, chests included
+- **/countdown** — a boss-bar countdown for everyone, 3-2-1 titles at the end
+- **/announce** — a message as a title on every screen; long ones flow into the subtitle and over
+  several titles
+- **/durability** menu — repair everything, or wear gear down heavily, moderately, lightly or to an
+  exact level, each item a little differently
+- **Bot scenes** — `/bots savescene` saves the bots around you with their paths and settings;
+  `/bots scene` brings them back any time, across restarts
+- **Bots: fight on sight** — bots on a path, scenario, recording, wander or follow drop it to attack
+  whoever they notice, then go back to it (Settings → Targeting)
+- Bots on routes walk in their own mixed gaits, stop to look around, find their way back when stuck,
+  and `path populate` spawns a route's walkers one by one
+
+**Fixed**
+- `/sudo` now works (it failed to parse every time)
+- A bot stuck beside its route point no longer crashes the server
+- The permission and rank menus show the Bots node again
+
+---
+
 ## 1.3.6
 
 **Added**

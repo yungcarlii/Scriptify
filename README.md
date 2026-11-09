@@ -24,7 +24,7 @@ instead of stringing together twelve vanilla commands and hoping.
 
 ## Quick start
 
-1. Drop `scriptify-2.0.0.jar` into your server's `mods` folder.
+1. Drop `scriptify-2.1.0.jar` into your server's `mods` folder.
 2. Start the server.
 3. Run **`/scriptify`** in game.
 
